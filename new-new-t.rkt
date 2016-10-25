@@ -46,12 +46,17 @@
   (hash-remove! tactics id)
   tac)
 
+(define-for-syntax (hole? stx)
+  (and (identifier? stx)
+       (free-identifier=? stx #'hole)
+       (get-id stx)))
+
 ;; A tactic is a procedure that takes the hole on which it is invoked
 ;; and a "continuation" procedure that returns tactics for any
 ;; subgoals. It returns the output syntax, potentially containing new
 ;; holes.
 (define-for-syntax tactic/c
-  (-> syntax? (-> (recursive-contract tactic/c)) syntax?))
+  (-> syntax? (-> hole?) syntax?))
 
 ;; Failing tactics should raise an exception for which exn:fail:tactics? is truthy.
 (begin-for-syntax
@@ -69,30 +74,30 @@
 
 ;; Create a syntax object that is a hole, and will run the provided tactic.
 (begin-for-syntax
-  (define/contract (make-hole tac)
+  (define/contract (hole-with-tactic tac)
     (-> tactic/c syntax?)
     (define id (fresh-key))
     (hash-set! (tactic-state-hole-tactics the-state) id tac)
     (set-id #'hole id))
 
   ;; A tactic that does nothing.
-  (define/contract (skip hole next-tactic)
+  (define/contract (skip hole make-hole)
     tactic/c
-    (make-hole (next-tactic)))
+    (make-hole))
 
   ;; If tacs is empty, just run tac. Otherwise, run tac, with
   ;; (then . tacs) running in each subgoal.
-  (define/contract ((then tac . tacs) hole next-tactic)
+  (define/contract ((then tac . tacs) hole make-hole)
     (->* (tactic/c) #:rest (listof tactic/c) tactic/c)
     (cond
       [(pair? tacs)
        (define (inner-next)
-         (apply then tacs))
+         (hole-with-tactic (apply then tacs)))
        (tac hole inner-next)]
       [else
-       (tac hole next-tactic)]))
+       (tac hole make-hole)]))
 
-  (define/contract ((then-l tac . tacs) hole next-tactic)
+  (define/contract ((then-l tac . tacs) hole make-hole)
     (->* (tactic/c) #:rest (listof (sequence/c tactic/c)) tactic/c)
     (cond
       [(pair? tacs)
@@ -100,30 +105,30 @@
          (generator ()
            (for ([t2 (in-sequences (car tacs)
                                    (in-cycle (in-value skip)))])
-             (yield (apply then-l t2 (cdr tacs))))))
+             (yield (hole-with-tactic (apply then-l t2 (cdr tacs)))))))
        (tac hole inner-next)]
       [else
-       (tac hole next-tactic)]))
+       (tac hole make-hole)]))
 
   ;; Emit a particular piece of syntax.
-  (define/contract ((emit out-stx) hole next-tactic)
+  (define/contract ((emit out-stx) hole make-hole)
     (-> syntax? tactic/c)
     out-stx)
 
-  (define/contract ((fail message) hole next-tactic)
+  (define/contract ((fail message) hole make-hole)
     (-> string? tactic/c)
     (raise (make-exn:fail:tactics message (current-continuation-marks) hole)))
 
   ;; Attempt to continue with tac, using alts in order if it fails.
-  (define/contract ((try tac . alts) hole next-tactic)
+  (define/contract ((try tac . alts) hole make-hole)
     (->* (tactic/c) #:rest (listof tactic/c) tactic/c)
     (cond
       [(pair? alts)
        (with-handlers ([exn:fail:tactics? (lambda (e)
-                                            ((apply try alts) hole next-tactic))])
-         (tac hole next-tactic))]
+                                            ((apply try alts) hole make-hole))])
+         (tac hole make-hole))]
       [else
-       (tac hole next-tactic)])))
+       (tac hole make-hole)])))
 
 
 (define-syntax (run-script stx)
@@ -131,13 +136,13 @@
     [(_ . tacs)
      #'(let ()
          (define-syntax (go s)
-           (make-hole (then . tacs)))
+           (hole-with-tactic (then . tacs)))
          (go))]))
 
 (module+ test
-  (define-for-syntax (plus hole next-tactic)
-    (define h1 (make-hole (next-tactic)))
-    (define h2 (make-hole (next-tactic)))
+  (define-for-syntax (plus hole make-hole)
+    (define h1 (make-hole))
+    (define h2 (make-hole))
     #`(+ #,h1 #,h2))
 
   (define seven
