@@ -1,6 +1,10 @@
 #lang racket
 (require (for-syntax racket/generator racket/contract racket/sequence))
 
+(provide
+ (for-syntax skip fail try then then-l emit tactic/c hole-with-tactic)
+ run-script)
+
 (module+ test
   (require rackunit))
 
