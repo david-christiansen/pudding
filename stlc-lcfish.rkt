@@ -18,20 +18,29 @@
 (define-type String)
 (define-type →)
 
-(begin-for-syntax
-  (define (type=? t1 t2)
-    (syntax-case t1 (Int String →)
-      [Int (and (identifier? t2)
-                (free-identifier=? t2 #'Int))]
-      [String (and (identifier? t2)
-                   (free-identifier=? t2 #'String))]
-      [(→ a c)
-       (syntax-case t2 (→)
-         [(→ b d)
-          (and (type=? #'a #'b)
-               (type=? #'c #'d))]
-         [_ #f])]
-      [_ #f])))
+
+(define-for-syntax (type=? t1 t2)
+  (syntax-case t1 (Int String →)
+    [Int (and (identifier? t2)
+              (free-identifier=? t2 #'Int))]
+    [String (and (identifier? t2)
+                 (free-identifier=? t2 #'String))]
+    [(→ a c)
+     (syntax-case t2 (→)
+       [(→ b d)
+        (and (type=? #'a #'b)
+             (type=? #'c #'d))]
+       [_ #f])]
+    [_ #f]))
+
+(define-for-syntax (type->contract t)
+  (syntax-case t (→ Int String)
+    [Int #'integer?]
+    [String #'string?]
+    [(→ a b)
+     #`(-> #,(type->contract #'a) #,(type->contract #'b))]
+    [_ (error 'bad-type)]))
+
 
 ;; For trampolining through the macro expander to get the right scopes.
 ;; Communicates with make-assumption-hole and →-intro.
@@ -40,7 +49,7 @@
   (define next-hole (syntax-property stx 'next-hole))
   (syntax-case stx ()
     [(_ x a)
-     (set-goal (next-hole) (⊢ (cons (cons #'x #'a) H) G))]))
+     (set-goal (next-hole) (⊢ (cons (list #'x #'a #t) H) G))]))
 
 (define-for-syntax (make-assumption-hole next-hole x a H G)
   (syntax-property
@@ -95,11 +104,24 @@
     (match-define (⊢ H G) (get-goal hole))
     (if (>= n (length H))
         ((fail "Not enough hypotheses") hole make-hole)
-        (match-let ([(cons x t) (list-ref H n)])
-          (if (not (type=? t G))
-              ((fail (format "Wrong goal type. Expected ~a, got ~a" G t))
-               hole make-hole)
-              ((emit x) hole make-hole)))))
+        (match-let ([(list x t safe?) (list-ref H n)])
+          (cond [(not (type=? t G))
+                 ((fail (format "Wrong goal type. Expected ~a, got ~a" G t))
+                  hole make-hole)]
+                [safe? ((emit x) hole make-hole)]
+                [else
+                 (define where #`(srcloc '#,(syntax-source x)
+                                         '#,(syntax-line x)
+                                         '#,(syntax-column x)
+                                         '#,(syntax-position x)
+                                         '#,(syntax-span x)))
+                 ((emit #`(contract #,(type->contract t)
+                                    #,x
+                                    #,(string-append "assumption " (symbol->string (syntax-e x)) " in proof")
+                                    'neg-blame
+                                    '#,x
+                                    #,where))
+                  hole make-hole)]))))
 
   (define/contract ((plus n) hole make-hole)
     (-> exact-nonnegative-integer? tactic/c)
@@ -117,7 +139,7 @@
      #'(let ()
          (define-syntax (go s)
            (set-goal (hole-with-tactic (then tac . tacs))
-                     (⊢ (reverse (list (cons #'x #'t) ...)) #'g)))
+                     (⊢ (reverse (list (list #'x #'t #f) ...)) #'g)))
          (go))]
     [(run-script #:goal g
         tac . tacs)
@@ -135,12 +157,14 @@
   ;; same binding as the x in the lambda. This lets us include tactic
   ;; scripts in ordinary programs, and switch program construction
   ;; modalities without giving up binding.
+
   (define (f x)
     (run-script #:hyps [(x Int)] #:goal Int
                 (then-l (plus 2)
                         (list (int-intro 1)
                               (assumption 0)))))
 
+  
   (for ([i (in-range 0 100)])
     (check-equal? (f i) (add1 i)))
 
