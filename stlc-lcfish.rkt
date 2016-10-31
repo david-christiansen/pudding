@@ -1,7 +1,8 @@
 #lang racket
 
 (require (except-in "lcfish.rkt" run-script)
-         (for-syntax racket/contract racket/match)
+         (for-syntax racket/contract racket/match racket/promise)
+         racket/stxparam
          (for-template racket/base))
 
 (module+ test (require rackunit))
@@ -68,7 +69,15 @@
   (define (set-goal stx goal)
     (syntax-property stx 'goal goal))
 
-  (define/contract ((guard-goal pred tac) hole make-hole)
+  (define (dump-goal stx)
+    (match-define (⊢ H G) (get-goal stx))
+    (for/list ([h (reverse H)])
+      (match h
+        [(list x t safe?)
+         (printf "~a : ~a\n" (syntax-e x) (syntax->datum t))]))
+    (printf "⊢ ~a\n\n" (syntax->datum G)))
+
+   (define/contract ((guard-goal pred tac) hole make-hole)
     (-> (-> ⊢? any/c) tactic/c tactic/c)
     (match (get-goal hole)
       [#f ((fail "No goal found.") hole make-hole)]
@@ -97,7 +106,7 @@
     (syntax-case G (→)
       [(→ a b)
        ((emit #`(lambda (#,x) #,(make-assumption-hole make-hole (datum->syntax #'here x) #'a H #'b))) hole make-hole)]
-      [_ ((fail "Not an arrow: ~a" (syntax->datum G)) hole make-hole)]))
+      [_ ((fail (format "Not an arrow: ~a" (syntax->datum G))) hole make-hole)]))
 
   (define/contract ((assumption n) hole make-hole)
     (-> exact-nonnegative-integer? tactic/c)
@@ -136,7 +145,7 @@
 (define-syntax (run-script stx)
   (syntax-case stx ()
     [(run-script #:hyps [(x t) ...] #:goal g tac . tacs)
-     #'(let ()
+     #`(syntax-parameterize ([tactic-debug-hook #,dump-goal])
          (define-syntax (go s)
            (set-goal (hole-with-tactic (then tac . tacs))
                      (⊢ (reverse (list (list #'x #'t #f) ...)) #'g)))
@@ -164,7 +173,7 @@
                         (list (int-intro 1)
                               (assumption 0)))))
 
-  
+
   (for ([i (in-range 0 100)])
     (check-equal? (f i) (add1 i)))
 
@@ -189,16 +198,30 @@
                 (→-intro 'x)
                 (plus 2)
                 (assumption 0)))
+
   (for ([i (in-range 100)])
     (check-equal? (twice i) (* 2 i)))
 
+  (define-for-syntax (repeat t)
+    (then t
+          (try (delay (repeat t))
+               skip)))
+
   (define add
-    (run-script #:goal (→ Int (→ Int Int))
-                (→-intro)
-                (→-intro)
-                (then-l (plus 2)
-                        (list (assumption 0)
-                              (assumption 1)))))
+    (syntax-parameterize ([tactic-debug-hook dump-goal]
+                          [tactic-debug? #t])
+        (run-script #:goal (→ Int (→ Int Int))
+                    (log "fnord")
+                    (→-intro 'y)
+                    (→-intro 'z)
+                    (try (repeat (then (log "here")
+                                   (→-intro)))
+                         skip)
+                    ;;(→-intro)
+                    (log "here 2")
+                    (then-l (plus 2)
+                            (list (assumption 0)
+                                  (assumption 1))))))
   (for* ([i (in-range 100)]
          [j (in-range 100)])
     (check-equal? ((add i) j) (+ i j))))
