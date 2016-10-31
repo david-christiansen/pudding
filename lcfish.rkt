@@ -1,12 +1,19 @@
 #lang racket
 (require (for-syntax racket/generator racket/contract racket/sequence))
+         racket/stxparam)
 
 (provide
  (for-syntax skip fail try then then-l emit tactic/c hole-with-tactic)
+ tactic-debug? tactic-debug-hook
  run-script)
 
 (module+ test
   (require rackunit))
+
+(define-syntax-parameter tactic-debug? #f)
+(define-syntax-parameter tactic-debug-hook
+  (lambda (hole-stx)
+    (printf "Hole ID: ~a\n" (get-id hole-stx))))
 
 (begin-for-syntax
   ;; Keys are used to look up the tactic for a hole. They are used
@@ -114,6 +121,10 @@
       [else
        (tac hole make-hole)]))
 
+  (define/contract ((log message) hole make-hole)
+    (-> any/c tactic/c)
+    (println message)
+    (make-hole))
   ;; Emit a particular piece of syntax.
   (define/contract ((emit out-stx) hole make-hole)
     (-> syntax? tactic/c)
@@ -142,6 +153,7 @@
          (define-syntax (go s)
            (hole-with-tactic (then . tacs)))
          (go))]))
+
 
 (module+ test
   (define-for-syntax (plus hole make-hole)
