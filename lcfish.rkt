@@ -69,6 +69,9 @@
 (define-for-syntax tactic/c
   (-> syntax? (-> hole?) syntax?))
 
+(define-for-syntax (copy-goal old-goal new-goal)
+  (syntax-property new-goal 'goal (syntax-property old-goal 'goal)))
+
 ;; Failing tactics should raise an exception for which exn:fail:tactics? is truthy.
 (begin-for-syntax
   (struct exn:fail:tactics exn:fail (hole) #:extra-constructor-name make-exn:fail:tactics))
@@ -96,7 +99,7 @@
   ;; A tactic that does nothing.
   (define/contract (skip hole make-hole)
     tactic/c
-    (make-hole))
+    (copy-goal hole (make-hole)))
 
   (define/contract ((then-l tac . tacs) hole make-hole)
     (->* (tactic/c)
@@ -131,7 +134,7 @@
   (define/contract ((log message) hole make-hole)
     (-> any/c tactic/c)
     (println message)
-    (make-hole))
+    (copy-goal hole (make-hole)))
 
   ;; Emit a particular piece of syntax.
   (define/contract ((emit out-stx) hole make-hole)
@@ -151,7 +154,7 @@
        (with-handlers ([exn:fail:tactics? (lambda (e)
                                             (displayln `(found ,e))
                                             ((apply try alts) hole make-hole))])
-         ((force tac) hole make-hole))]
+         (local-expand ((force tac) hole make-hole) 'expression null))]
       [else
        ((force tac) hole make-hole)])))
 

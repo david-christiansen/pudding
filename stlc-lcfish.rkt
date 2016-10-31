@@ -105,7 +105,13 @@
     (match-define (⊢ H G) (get-goal hole))
     (syntax-case G (→)
       [(→ a b)
-       ((emit #`(lambda (#,x) #,(make-assumption-hole make-hole (datum->syntax #'here x) #'a H #'b))) hole make-hole)]
+       ((emit #`(lambda (#,x)
+                  #,(make-assumption-hole make-hole
+                                          (datum->syntax #'here x)
+                                          #'a
+                                          H
+                                          #'b)))
+        hole make-hole)]
       [_ ((fail (format "Not an arrow: ~a" (syntax->datum G))) hole make-hole)]))
 
   (define/contract ((assumption n) hole make-hole)
@@ -214,8 +220,10 @@
                     (log "fnord")
                     (→-intro 'y)
                     (→-intro 'z)
+                    (try (repeat (→-intro)) skip)
+                    
                     (try (repeat (then (log "here")
-                                   (→-intro)))
+                                       (→-intro)))
                          skip)
                     ;;(→-intro)
                     (log "here 2")
