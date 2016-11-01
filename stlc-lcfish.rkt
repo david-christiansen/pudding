@@ -5,7 +5,7 @@
          racket/stxparam
          (for-template racket/base))
 
-(module+ test (require rackunit))
+(module+ test (require rackunit syntax/macro-testing))
 
 (begin-for-syntax
   (struct ⊢ (hyps goal) #:transparent))
@@ -150,10 +150,10 @@
 
 (define-syntax (run-script stx)
   (syntax-case stx ()
-    [(run-script #:hyps [(x t) ...] #:goal g tac . tacs)
+    [(run-script #:hyps [(x t) ...] #:goal g tactic ...)
      #`(syntax-parameterize ([tactic-debug-hook #,dump-goal])
          (define-syntax (go s)
-           (set-goal (hole-with-tactic (then tac . tacs))
+           (set-goal (hole-with-tactic (then tactic ...))
                      (⊢ (reverse (list (list #'x #'t #f) ...)) #'g)))
          (go))]
     [(run-script #:goal g
@@ -178,26 +178,33 @@
                 (then-l (plus 2)
                         (list (int-intro 1)
                               (assumption 0)))))
-
-
   (for ([i (in-range 0 100)])
     (check-equal? (f i) (add1 i)))
 
-  ;; Wrong goal type:
-  #;
-  (define (g x)
-    (run-script #:hyps [(x String)] #:goal Int
-                (then-l (plus 2)
-                        (list (int-intro 1)
-                              (assumption 0)))))
+  ;; The assumption was wrapped in a contract matching its type.
+  (check-exn exn:fail:contract? (thunk (f "foo")))
 
-  ;; Identifiers must match:
-  #;
+  ;; Wrong goal type:
   (define (g x)
-    (run-script #:hyps [(y Int)] #:goal Int
-                (then-l (plus 2)
-                        (list (int-intro 1)
-                              (assumption 0)))))
+    (convert-compile-time-error
+     (run-script #:hyps [(x String)] #:goal Int
+                 (then-l (plus 2)
+                         (list (int-intro 1)
+                               (assumption 0))))))
+  (for ([i (in-range 0 100)])
+      (check-exn #rx"Wrong goal type."
+             (thunk (g i))))
+  
+  ;; Identifiers must match:
+  (define (h x)
+    (convert-compile-time-error
+     (run-script #:hyps [(y Int)] #:goal Int
+                 (then-l (plus 2)
+                         (list (int-intro 1)
+                               (assumption 0))))))
+  (for ([i (in-range 0 100)])
+      (check-exn #rx"y: unbound identifier"
+             (thunk (h i))))
 
   (define twice
     (run-script #:goal (→ Int Int)
@@ -215,18 +222,13 @@
 
   (define add
     (syntax-parameterize ([tactic-debug-hook dump-goal]
-                          [tactic-debug? #t])
+                          [tactic-debug? #f])
         (run-script #:goal (→ Int (→ Int Int))
-                    (log "fnord")
-                    (→-intro 'y)
-                    (→-intro 'z)
+                    (repeat (→-intro 'y))
                     (try (repeat (→-intro)) skip)
-                    
-                    (try (repeat (then (log "here")
-                                       (→-intro)))
+                    (try (repeat (→-intro))
                          skip)
                     ;;(→-intro)
-                    (log "here 2")
                     (then-l (plus 2)
                             (list (assumption 0)
                                   (assumption 1))))))

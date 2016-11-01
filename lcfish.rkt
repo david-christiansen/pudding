@@ -78,7 +78,7 @@
 
 ;; A "next tactic" procedure that doesn't work. Used at the end of scripts.
 (define-for-syntax (no-more-tactics)
-  (raise-syntax-error #f "No more tactics."))
+  (raise-syntax-error 'no-more-tactics "No more tactics."))
 
 ;; The hole macro runs the tactic that is associated with its key in
 ;; the state.
@@ -111,7 +111,8 @@
          (generator ()
            (for ([t2 (in-sequences (car tacs)
                                    (in-cycle (in-value skip)))])
-             (yield (hole-with-tactic (apply then-l (force t2) (cdr tacs)))))))
+             (yield (hole-with-tactic (lambda (h m-h)
+                                        ((apply then-l (force t2) (cdr tacs)) h make-hole)))))))
        (tac hole inner-next)]
       [else
        (tac hole make-hole)]))
@@ -125,7 +126,8 @@
     (cond
       [(pair? tacs)
        (define (inner-next)
-         (hole-with-tactic (apply then tacs)))
+         (hole-with-tactic (lambda (h m-h)
+                             ((apply then tacs) h make-hole))))
        (tac hole inner-next)]
       [else
        (tac hole make-hole)]))
@@ -151,9 +153,9 @@
          #:rest (listof (or/c tactic/c (promise/c tactic/c))) tactic/c)
     (cond
       [(pair? alts)
-       (with-handlers ([exn:fail:tactics? (lambda (e)
-                                            (displayln `(found ,e))
-                                            ((apply try alts) hole make-hole))])
+       (with-handlers ([exn:fail:tactics?
+                        (lambda (e)
+                          ((apply try alts) hole make-hole))])
          (local-expand ((force tac) hole make-hole) 'expression null))]
       [else
        ((force tac) hole make-hole)])))
@@ -169,6 +171,11 @@
 
 
 (module+ test
+  (define-for-syntax (repeat t)
+    (then t
+          (try (delay (repeat t))
+               skip)))
+
   (define-for-syntax (plus hole make-hole)
     (define h1 (make-hole))
     (define h2 (make-hole))
@@ -212,7 +219,27 @@
   (define another-three
     (run-script (then-l plus
                         (list (emit #'2))
-                        (list (emit #'1))))))
+                        (list (emit #'1)))))
+
+  (define-for-syntax counter 0)
+  (define-for-syntax (at-most-two-plus hole new-hole)
+    (if (> counter 1)
+        ((fail "no more plus") hole new-hole)
+        (begin (set! counter (+ counter 1))
+               (plus hole new-hole))))
+  
+  (define foo
+    (run-script (then plus
+                      (then plus plus )
+                      plus plus
+                      (repeat (emit #'1)))))
+  (check-equal? foo 32)
+
+  
+  (define bar (run-script (then (repeat at-most-two-plus)
+                                (repeat (emit #'1)))))
+  (check-equal? bar 3) ;; (+ (+ 1 1) 1)
+)
 
 
 ;; Local Variables:
