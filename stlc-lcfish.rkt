@@ -1,7 +1,7 @@
 #lang racket
 
 (require (except-in "lcfish.rkt" run-script)
-         (for-syntax racket/contract racket/match racket/promise)
+         (for-syntax racket/contract racket/match racket/promise syntax/parse)
          racket/stxparam
          (for-template racket/base))
 
@@ -48,14 +48,20 @@
 (define-syntax (assumption-hole stx)
   (match-define (⊢ H G) (get-goal stx))
   (define next-hole (syntax-property stx 'next-hole))
+  (define params (syntax-property stx 'params))
   (syntax-case stx ()
     [(_ x a)
-     (set-goal (next-hole) (⊢ (cons (list #'x #'a #t) H) G))]))
+     (call-with-parameterization
+      params
+      (lambda ()
+        (set-goal (next-hole) (⊢ (cons (list #'x #'a #t) H) G))))]))
 
 (define-for-syntax (make-assumption-hole next-hole x a H G)
   (syntax-property
-   (set-goal #`(assumption-hole #,x #,a) (⊢ H G))
-   'next-hole next-hole))
+   (syntax-property
+    (set-goal #`(assumption-hole #,x #,a) (⊢ H G))
+    'next-hole next-hole)
+   'params (current-parameterization)))
 
 (begin-for-syntax
   (define (leftmost v)
@@ -112,7 +118,10 @@
                                           H
                                           #'b)))
         hole make-hole)]
-      [_ ((fail (format "Not an arrow: ~a" (syntax->datum G))) hole make-hole)]))
+      [t
+       (begin (displayln "oops")
+              (displayln #'t)
+              ((fail (format "Not an arrow: ~a" (syntax->datum G))) hole make-hole))]))
 
   (define/contract ((assumption n) hole make-hole)
     (-> exact-nonnegative-integer? tactic/c)
@@ -148,17 +157,23 @@
                          (set-goal h (⊢ H #'Int))))) hole make-hole))))
 
 
+(begin-for-syntax
+  (define-splicing-syntax-class hyps-option
+    (pattern (~seq #:hyps [(x:id t:expr) ...])
+             #:with hyps #'[(x t) ...])
+    (pattern (~seq)
+             #:with hyps #'[])))
+
 (define-syntax (run-script stx)
-  (syntax-case stx ()
-    [(run-script #:hyps [(x t) ...] #:goal g tactic ...)
-     #`(syntax-parameterize ([tactic-debug-hook #,dump-goal])
-         (define-syntax (go s)
-           (set-goal (hole-with-tactic (then tactic ...))
-                     (⊢ (reverse (list (list #'x #'t #f) ...)) #'g)))
-         (go))]
-    [(run-script #:goal g
-        tac . tacs)
-     #'(run-script #:hyps () #:goal g tac . tacs)]))
+  (syntax-parse stx
+    [(run-script hs:hyps-option #:goal g tactic ...)
+     (with-syntax ([((x t) ...) #'hs.hyps])
+      #`(syntax-parameterize ([tactic-debug-hook #,dump-goal])
+          (define-syntax (go s)
+            (parameterize ([current-tactic-location #'#,stx])
+              (set-goal (hole-with-tactic (then tactic ...))
+                        (⊢ (reverse (list (list #'x #'t #f) ...)) #'g))))
+          (go)))]))
 
 
 
@@ -216,19 +231,20 @@
     (check-equal? (twice i) (* 2 i)))
 
   (define-for-syntax (repeat t)
-    (then t
-          (try (delay (repeat t))
-               skip)))
-
+    (try (then t
+               (delay (repeat t)))
+         skip))
   (define add
     (syntax-parameterize ([tactic-debug-hook dump-goal]
-                          [tactic-debug? #f])
+                          [tactic-debug? #t])
         (run-script #:goal (→ Int (→ Int Int))
-                    (repeat (→-intro 'y))
-                    (try (repeat (→-intro)) skip)
-                    (try (repeat (→-intro))
+                    (repeat (→-intro))
+                    (→-intro 'z)
+                    #;(try (repeat (→-intro)) skip)
+                    #;(try (repeat (→-intro))
                          skip)
-                    ;;(→-intro)
+                   
+                    ;(string-intro "hey")
                     (then-l (plus 2)
                             (list (assumption 0)
                                   (assumption 1))))))

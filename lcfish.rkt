@@ -1,9 +1,9 @@
 #lang racket
-(require (for-syntax racket/generator racket/contract racket/sequence racket/promise)
+(require (for-syntax racket/generator racket/contract racket/sequence racket/promise racket/match)
          racket/stxparam)
 
 (provide
- (for-syntax skip fail try then then-l emit tactic/c hole-with-tactic log)
+ (for-syntax skip fail try then then-l emit tactic/c hole-with-tactic log current-tactic-location)
  tactic-debug? tactic-debug-hook
  run-script)
 
@@ -16,6 +16,8 @@
     (printf "Hole ID: ~a\n" (get-id hole-stx))))
 
 (begin-for-syntax
+  (define current-tactic-location (make-parameter #f))
+
   ;; Keys are used to look up the tactic for a hole. They are used
   ;; only as unique identifiers --- the fact that the struct is not
   ;; transparent means that equality is pointer equality, and
@@ -74,19 +76,38 @@
 
 ;; Failing tactics should raise an exception for which exn:fail:tactics? is truthy.
 (begin-for-syntax
-  (struct exn:fail:tactics exn:fail (hole) #:extra-constructor-name make-exn:fail:tactics))
+  (define (syntax->srcloc stx)
+    (srcloc (syntax-source stx)
+            (syntax-line stx)
+            (syntax-column stx)
+            (syntax-position stx)
+            (syntax-span stx)))
+
+  (struct exn:fail:tactics exn:fail (hole location)
+    #:extra-constructor-name make-exn:fail:tactics
+    #:property prop:exn:srclocs
+    (lambda (e)
+      (match (exn:fail:tactics-location e)
+        [(? srcloc? loc)
+         (list loc)]
+        [(? syntax? stx)
+         (list (syntax->srcloc stx))]
+        [_ null]))))
 
 ;; A "next tactic" procedure that doesn't work. Used at the end of scripts.
 (define-for-syntax (no-more-tactics)
-  (raise-syntax-error 'no-more-tactics "No more tactics."))
+  (raise-syntax-error 'no-more-tactics "No more tactics." (current-tactic-location)))
 
 ;; The hole macro runs the tactic that is associated with its key in
 ;; the state.
 (define-syntax (hole stx)
   (define tac (get-hole-tactic stx))
+  (define params (leftmost (syntax-property stx 'params)))
   (when (syntax-parameter-value #'tactic-debug?)
     ((syntax-parameter-value #'tactic-debug-hook) stx))
-  (tac stx no-more-tactics))
+  (call-with-parameterization params
+                              (lambda ()
+                                (tac stx no-more-tactics))))
 
 ;; Create a syntax object that is a hole, and will run the provided tactic.
 (begin-for-syntax
@@ -94,7 +115,7 @@
     (-> tactic/c syntax?)
     (define id (fresh-key))
     (hash-set! (tactic-state-hole-tactics the-state) id tac)
-    (set-id #'hole id))
+    (syntax-property (set-id #'hole id) 'params (current-parameterization)))
 
   ;; A tactic that does nothing.
   (define/contract (skip hole make-hole)
@@ -125,12 +146,12 @@
          tactic/c)
     (cond
       [(pair? tacs)
-       (define (inner-next)
-         (hole-with-tactic (lambda (h m-h)
-                             ((apply then tacs) h make-hole))))
-       (tac hole inner-next)]
+       ((force tac) hole (lambda ()
+                           (hole-with-tactic
+                            (lambda (h m-h)
+                              ((apply then tacs) h make-hole)))))]
       [else
-       (tac hole make-hole)]))
+       ((force tac) hole make-hole)]))
 
 
   (define/contract ((log message) hole make-hole)
@@ -145,7 +166,7 @@
 
   (define/contract ((fail message) hole make-hole)
     (-> string? tactic/c)
-    (raise (make-exn:fail:tactics message (current-continuation-marks) hole)))
+    (raise (make-exn:fail:tactics message (current-continuation-marks) hole (current-tactic-location))))
 
   ;; Attempt to continue with tac, using alts in order if it fails.
   (define/contract ((try tac . alts) hole make-hole)
@@ -163,10 +184,11 @@
 
 (define-syntax (run-script stx)
   (syntax-case stx ()
-    [(_ . tacs)
-     #'(let ()
+    [(_ tacs ...)
+     #`(let ()
          (define-syntax (go s)
-           (hole-with-tactic (then . tacs)))
+           (parameterize ([current-tactic-location #'#,stx])
+             (hole-with-tactic (then tacs ...))))
          (go))]))
 
 
