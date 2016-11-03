@@ -191,9 +191,8 @@
   (define (f x)
     (run-script #:hyps [(x Int)] #:goal Int
                 (then-l (plus 2)
-                        (list (int-intro 1)
-                              (assumption 0)))))
-  (for ([i (in-range 0 100)])
+                        ((int-intro 1) (assumption 0)))))
+  #;(for ([i (in-range 0 100)])
     (check-equal? (f i) (add1 i)))
 
   ;; The assumption was wrapped in a contract matching its type.
@@ -204,8 +203,7 @@
     (convert-compile-time-error
      (run-script #:hyps [(x String)] #:goal Int
                  (then-l (plus 2)
-                         (list (int-intro 1)
-                               (assumption 0))))))
+                         ((int-intro 1) (assumption 0))))))
   (for ([i (in-range 0 100)])
       (check-exn #rx"Wrong goal type."
              (thunk (g i))))
@@ -215,11 +213,10 @@
     (convert-compile-time-error
      (run-script #:hyps [(y Int)] #:goal Int
                  (then-l (plus 2)
-                         (list (int-intro 1)
-                               (assumption 0))))))
+                         ((int-intro 1) (assumption 0))))))
   (for ([i (in-range 0 100)])
       (check-exn #rx"y: unbound identifier"
-             (thunk (h i))))
+                 (thunk (h i))))
 
   (define twice
     (run-script #:goal (→ Int Int)
@@ -236,18 +233,17 @@
          skip))
   (define add
     (syntax-parameterize ([tactic-debug-hook dump-goal]
-                          [tactic-debug? #t])
+                          [tactic-debug? #f])
         (run-script #:goal (→ Int (→ Int Int))
                     (repeat (→-intro))
-                    (→-intro 'z)
+                    ;(→-intro 'z) 
                     #;(try (repeat (→-intro)) skip)
                     #;(try (repeat (→-intro))
                          skip)
                    
                     ;(string-intro "hey")
                     (then-l (plus 2)
-                            (list (assumption 0)
-                                  (assumption 1))))))
+                            ((assumption 0) (assumption 1))))))
   (for* ([i (in-range 100)]
          [j (in-range 100)])
     (check-equal? ((add i) j) (+ i j))))

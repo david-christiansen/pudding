@@ -1,5 +1,7 @@
 #lang racket
-(require (for-syntax racket/generator racket/contract racket/sequence racket/promise racket/match)
+(require (for-syntax racket/generator racket/contract racket/sequence racket/promise racket/match
+                     racket/control
+                     (for-syntax racket/base))
          racket/stxparam)
 
 (provide
@@ -17,7 +19,8 @@
 
 (begin-for-syntax
   (define current-tactic-location (make-parameter #f))
-
+  (define current-tactic-handler (make-parameter (lambda (e) (raise e))))
+  
   ;; Keys are used to look up the tactic for a hole. They are used
   ;; only as unique identifiers --- the fact that the struct is not
   ;; transparent means that equality is pointer equality, and
@@ -122,38 +125,70 @@
     tactic/c
     (copy-goal hole (make-hole)))
 
-  (define/contract ((then-l tac . tacs) hole make-hole)
-    (->* (tactic/c)
-         #:rest (listof (sequence/c (or/c tactic/c (promise/c tactic/c))))
+  (define/contract ((then-l* tac/loc . tacs) hole make-hole)
+    (->* ((cons/c (or/c tactic/c (promise/c tactic/c))
+                  (or/c #f srcloc? syntax?)))
+         #:rest (listof (sequence/c (cons/c (or/c tactic/c (promise/c tactic/c))
+                                            (or/c #f syntax? srcloc?))))
          tactic/c)
-    (cond
-      [(pair? tacs)
-       (define inner-next
-         (generator ()
-           (for ([t2 (in-sequences (car tacs)
-                                   (in-cycle (in-value skip)))])
-             (yield (hole-with-tactic (lambda (h m-h)
-                                        ((apply then-l (force t2) (cdr tacs)) h make-hole)))))))
-       (tac hole inner-next)]
-      [else
-       (tac hole make-hole)]))
+    (define tac (car tac/loc))
+    (define loc (cdr tac/loc))
+    (parameterize ([current-tactic-location (if loc loc (current-tactic-location))])
+      (cond
+        [(pair? tacs)
+         (define inner-next
+           (generator ()
+                      (for ([tac/loc2 (in-sequences (car tacs)
+                                                    (in-cycle (in-value (cons skip #f))))])
+                        (yield (hole-with-tactic (lambda (hole-stx m-h)
+                                                   ((apply then-l* tac/loc2 (cdr tacs))
+                                                    hole-stx
+                                                    make-hole)))))))
+         ((force tac) hole inner-next)]
+        [else
+         ((force tac) hole make-hole)])))
+
+  (define-syntax (then-l stx)
+    (syntax-case stx ()
+      [(_ tac1 (tac2 ...) ...)
+       (let ([tactics/loc (for/list ([ts (syntax->list #'((tac2 ...) ...))])
+                            (quasisyntax/loc ts
+                             (list #,@(for/list ([t (syntax->list ts)])
+                                        (quasisyntax/loc t
+                                          (cons #,t #'#,t))))))])
+       (quasisyntax/loc stx
+         (then-l* (cons tac1 #'tac1) #,@tactics/loc)))]))
 
   ;; If tacs is empty, just run tac. Otherwise, run tac, with
   ;; (then . tacs) running in each subgoal.
-  (define/contract ((then tac . tacs) hole make-hole)
-    (->* ((or/c tactic/c (promise/c tactic/c)))
-         #:rest (listof (or/c tactic/c (promise/c tactic/c)))
+  (define/contract ((then* tac/loc . tacs-and-locs) hole make-hole)
+    (->* ((cons/c (or/c tactic/c (promise/c tactic/c))
+                  (or/c #f srcloc? syntax?)))
+         #:rest (listof (cons/c (or/c tactic/c (promise/c tactic/c))
+                                (or/c #f srcloc? syntax?)))
          tactic/c)
-    (cond
-      [(pair? tacs)
-       ((force tac) hole (lambda ()
-                           (hole-with-tactic
-                            (lambda (h m-h)
-                              ((apply then tacs) h make-hole)))))]
-      [else
-       ((force tac) hole make-hole)]))
+    (define tac (car tac/loc))
+    (define loc (cdr tac/loc))
+    (parameterize ([current-tactic-location (if loc loc (current-tactic-location))])
+      (cond
+        [(pair? tacs-and-locs)
+         ((force tac) hole (lambda ()
+                             (hole-with-tactic
+                              (lambda (h m-h)
+                                ((apply then* tacs-and-locs) h make-hole)))))]
+        [else
+         ((force tac) hole make-hole)])))
 
-
+  
+  (define-syntax (then stx)
+    (syntax-case stx ()
+       [(_ tac ...)
+        (let ([tactics/loc (for/list ([t (syntax->list #'(tac ...))])
+                             (quasisyntax/loc t
+                               (cons #,t #'#,t)))])
+          (quasisyntax/loc stx
+            (then* #,@tactics/loc)))]))
+  
   (define/contract ((log message) hole make-hole)
     (-> any/c tactic/c)
     (println message)
@@ -164,23 +199,50 @@
     (-> syntax? tactic/c)
     out-stx)
 
+
+  ;; Error handling works as follows:
+  ;; The parameter current-tactic-handler contains the exception handler to run. If in the apparent
+  ;; dynamic extent of a try operator, this handler will be an escape continuation. If not, it will
+  ;; raise a normal Racket exception.
+  ;;
+  ;; This is needed because of the way continuations are chained: technically, the entire rest of the
+  ;; tactic program is in the dynamic extent of the try, so we need to manually be able to cut off the
+  ;; portion of the tree that corresponds to the try operator itself. That is, we must de-install the
+  ;; handler at the end of the try.
+  ;;
+  ;; fail simply calls the current handler.
   (define/contract ((fail message) hole make-hole)
     (-> string? tactic/c)
-    (raise (make-exn:fail:tactics message (current-continuation-marks) hole (current-tactic-location))))
+    ((current-tactic-handler)
+     (make-exn:fail:tactics message (current-continuation-marks) hole (current-tactic-location))))
 
-  ;; Attempt to continue with tac, using alts in order if it fails.
+  ;; Transform a make-hole procedure to first replace the current handler. This is used to cut off
+  ;; part of the proof tree at the end of a try.
+  (define (set-handler h make-hole)
+    (lambda ()
+      (parameterize ([current-tactic-handler h])
+        (make-hole))))
+  
+  ;; Attempt to continue with tac, using alts in order if it fails. First, the proof script is
+  ;; parameterized by the handler, but its continuation is then set up to de-install the handler.
+  ;; Because we must manually manage the dynamic extent of handlers, this is not done with normal
+  ;; exceptions, but instead with let/ec.
   (define/contract ((try tac . alts) hole make-hole)
     (->* ((or/c tactic/c (promise/c tactic/c)))
          #:rest (listof (or/c tactic/c (promise/c tactic/c))) tactic/c)
     (cond
       [(pair? alts)
-       (with-handlers ([exn:fail:tactics?
-                        (lambda (e)
-                          ((apply try alts) hole make-hole))])
-         (local-expand ((force tac) hole make-hole) 'expression null))]
+       (define h (current-tactic-handler))
+       (let ([res (let/ec k
+                    (parameterize ([current-tactic-handler k])
+                      (local-expand ((force tac) hole (set-handler h make-hole))
+                                    'expression
+                                    null)))])
+         (if (exn:fail? res)
+             ((apply try alts) hole make-hole)
+             res))]
       [else
        ((force tac) hole make-hole)])))
-
 
 (define-syntax (run-script stx)
   (syntax-case stx ()
@@ -195,8 +257,8 @@
 (module+ test
   (define-for-syntax (repeat t)
     (then t
-          (try (delay (repeat t))
-               skip)))
+           (try (delay (repeat t))
+                skip)))
 
   (define-for-syntax (plus hole make-hole)
     (define h1 (make-hole))
@@ -218,16 +280,13 @@
 
   (define three
     (run-script (then-l plus
-                        (list (emit #'2)
-                              (emit #'1)))))
+                        ((emit #'2) (emit #'1)))))
   (check-equal? three 3)
 
   (define six
     (run-script (then-l plus
-                        (list (emit #'1)
-                              plus)
-                        (list (emit #'2)
-                              (emit #'3)))))
+                        ((emit #'1) plus)
+                        ((emit #'2) (emit #'3)))))
   (check-equal? six 6)
 
   (define another-four
@@ -240,8 +299,8 @@
 
   (define another-three
     (run-script (then-l plus
-                        (list (emit #'2))
-                        (list (emit #'1)))))
+                        ((emit #'2))
+                        ((emit #'1)))))
 
   (define-for-syntax counter 0)
   (define-for-syntax (at-most-two-plus hole new-hole)
