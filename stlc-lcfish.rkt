@@ -200,7 +200,7 @@
     (run-script #:hyps [(x Int)] #:goal Int
                 (then-l (plus 2)
                         ((int-intro 1) (assumption 0)))))
-  #;(for ([i (in-range 0 100)])
+  (for ([i (in-range 0 100)])
     (check-equal? (f i) (add1 i)))
 
   ;; The assumption was wrapped in a contract matching its type.
@@ -245,12 +245,12 @@
         (run-script #:goal (→ Int (→ Int Int))
                     (repeat (→-intro))
                     ;(→-intro 'z) 
-                    #;(try (repeat (→-intro)) skip)
-                    #;(try (repeat (→-intro))
+                    (try (repeat (→-intro)) skip)
+                    (try (repeat (→-intro))
                          skip)
                    
                     ;(string-intro "hey")
-                    (then-l (plus 3)
+                    (then-l (plus 2)
                             ((assumption 0) (assumption 1))))))
   (for* ([i (in-range 100)]
          [j (in-range 100)])
