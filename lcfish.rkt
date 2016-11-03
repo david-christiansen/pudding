@@ -6,7 +6,7 @@
 
 (provide
  (for-syntax skip fail try then then-l emit tactic/c hole-with-tactic log
-             current-tactic-location no-more-tactics-hook)
+             current-tactic-location no-more-tactics-hook tactic-info-hook)
  tactic-debug? tactic-debug-hook
  run-script)
 
@@ -19,6 +19,9 @@
     (printf "Hole ID: ~a\n" (get-id hole-stx))))
 
 (begin-for-syntax
+  (define tactic-info-hook
+    (make-parameter
+     (lambda (h) #f)))
   (define no-more-tactics-hook
     (make-parameter
      (lambda (hole-stx)
@@ -107,6 +110,7 @@
 ;; The hole macro runs the tactic that is associated with its key in
 ;; the state.
 (define-syntax (hole stx)
+  (define-logger online-check-syntax)
   (define tac (get-hole-tactic stx))
   (define params (leftmost (syntax-property stx 'params)))
   (when (syntax-parameter-value #'tactic-debug?)

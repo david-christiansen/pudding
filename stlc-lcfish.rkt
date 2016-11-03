@@ -1,7 +1,7 @@
 #lang racket
 
 (require (except-in "lcfish.rkt" run-script)
-         (for-syntax racket/contract racket/match racket/promise syntax/parse racket/port)
+         (for-syntax racket/contract racket/match racket/promise syntax/parse racket/port syntax/srcloc)
          racket/stxparam
          (for-template racket/base))
 
@@ -77,10 +77,11 @@
 
   (define (dump-goal stx)
     (match-define (⊢ H G) (get-goal stx))
-    (for/list ([h (reverse H)])
+    (for/list ([h (reverse H)]
+               [i (in-range (length H) 0 -1)])
       (match h
         [(list x t safe?)
-         (printf "~a : ~a\n" (syntax-e x) (syntax->datum t))]))
+         (printf "~a. ~a : ~a\n" (sub1 i) (syntax-e x) (syntax->datum t))]))
     (printf "⊢ ~a\n\n" (syntax->datum G)))
 
   (no-more-tactics-hook (lambda (hole-stx)
@@ -92,12 +93,31 @@
                           (raise-syntax-error 'run-script
                                               message
                                               (current-tactic-location))))
+  (define-logger online-check-syntax)
+  (tactic-info-hook
+   (lambda (hole-stx)
+     (define where (current-tactic-location))
+     (define goal (with-output-to-string
+                   (lambda ()
+                     (dump-goal hole-stx))))
+     (log-message online-check-syntax-logger
+                  'info
+                  goal
+                  (list (syntax-property #'(void) 'mouse-over-tooltips
+                                         (vector where
+                                                 (syntax-position where)
+                                                 (+ (syntax-position where)
+                                                    (syntax-span where))
+                                                 (format "~a:\n~a"
+                                                         (syntax->datum where)
+                                                         goal)))))))
   
   (define/contract ((guard-goal pred tac) hole make-hole)
     (-> (-> ⊢? any/c) tactic/c tactic/c)
     (match (get-goal hole)
       [#f ((fail "No goal found.") hole make-hole)]
       [g #:when (pred g)
+         ((tactic-info-hook) hole)
          (tac hole make-hole)]
       [g ((fail (format "Wrong goal: ~a ⊢ ~a" (⊢-hyps g) (syntax->datum (⊢-goal g)))) hole make-hole)]))
 
@@ -118,6 +138,7 @@
 
   (define/contract ((→-intro [x 'x]) hole make-hole)
     (->* () (symbol?) tactic/c)
+    ((tactic-info-hook) hole)
     (match-define (⊢ H G) (get-goal hole))
     (syntax-case G (→)
       [(→ a b)
@@ -133,6 +154,7 @@
 
   (define/contract ((assumption n) hole make-hole)
     (-> exact-nonnegative-integer? tactic/c)
+    ((tactic-info-hook) hole)
     (match-define (⊢ H G) (get-goal hole))
     (if (>= n (length H))
         ((fail "Not enough hypotheses") hole make-hole)
@@ -157,6 +179,7 @@
 
   (define/contract ((plus n) hole make-hole)
     (-> exact-nonnegative-integer? tactic/c)
+    ((tactic-info-hook) hole)
     (match-define (⊢ H G) (get-goal hole))
     (if (not (type=? G #'Int))
         ((fail (format "Type not Int: ~a" G)) hole make-hole)
@@ -243,8 +266,8 @@
     (syntax-parameterize ([tactic-debug-hook dump-goal]
                           [tactic-debug? #f])
         (run-script #:goal (→ Int (→ Int Int))
-                    (repeat (→-intro))
-                    ;(→-intro 'z) 
+                    ;(repeat (→-intro))
+                    (→-intro 'z)
                     (try (repeat (→-intro)) skip)
                     (try (repeat (→-intro))
                          skip)
