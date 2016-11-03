@@ -250,7 +250,7 @@
                          skip)
                    
                     ;(string-intro "hey")
-                    (then-l (plus 3)
+                    (then-l (plus 2)
                             ((assumption 0) (assumption 1))))))
   (for* ([i (in-range 100)]
          [j (in-range 100)])
