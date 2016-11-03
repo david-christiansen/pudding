@@ -1,7 +1,7 @@
 #lang racket
 
 (require (except-in "lcfish.rkt" run-script)
-         (for-syntax racket/contract racket/match racket/promise syntax/parse)
+         (for-syntax racket/contract racket/match racket/promise syntax/parse racket/port)
          racket/stxparam
          (for-template racket/base))
 
@@ -83,7 +83,17 @@
          (printf "~a : ~a\n" (syntax-e x) (syntax->datum t))]))
     (printf "⊢ ~a\n\n" (syntax->datum G)))
 
-   (define/contract ((guard-goal pred tac) hole make-hole)
+  (no-more-tactics-hook (lambda (hole-stx)
+                          (define message
+                            (with-output-to-string
+                                (lambda ()
+                                  (printf "Unsolved goal:\n")
+                                  (dump-goal hole-stx))))
+                          (raise-syntax-error 'run-script
+                                              message
+                                              (current-tactic-location))))
+  
+  (define/contract ((guard-goal pred tac) hole make-hole)
     (-> (-> ⊢? any/c) tactic/c tactic/c)
     (match (get-goal hole)
       [#f ((fail "No goal found.") hole make-hole)]
@@ -119,9 +129,7 @@
                                           #'b)))
         hole make-hole)]
       [t
-       (begin (displayln "oops")
-              (displayln #'t)
-              ((fail (format "Not an arrow: ~a" (syntax->datum G))) hole make-hole))]))
+       ((fail (format "Not an arrow: ~a" (syntax->datum G))) hole make-hole)]))
 
   (define/contract ((assumption n) hole make-hole)
     (-> exact-nonnegative-integer? tactic/c)
@@ -242,7 +250,7 @@
                          skip)
                    
                     ;(string-intro "hey")
-                    (then-l (plus 2)
+                    (then-l (plus 3)
                             ((assumption 0) (assumption 1))))))
   (for* ([i (in-range 100)]
          [j (in-range 100)])

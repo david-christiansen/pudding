@@ -5,7 +5,8 @@
          racket/stxparam)
 
 (provide
- (for-syntax skip fail try then then-l emit tactic/c hole-with-tactic log current-tactic-location)
+ (for-syntax skip fail try then then-l emit tactic/c hole-with-tactic log
+             current-tactic-location no-more-tactics-hook)
  tactic-debug? tactic-debug-hook
  run-script)
 
@@ -16,6 +17,12 @@
 (define-syntax-parameter tactic-debug-hook
   (lambda (hole-stx)
     (printf "Hole ID: ~a\n" (get-id hole-stx))))
+
+(begin-for-syntax
+  (define no-more-tactics-hook
+    (make-parameter
+     (lambda (hole-stx)
+       (raise-syntax-error 'no-more-tactics "No more tactics" (current-tactic-location))))))
 
 (begin-for-syntax
   (define current-tactic-location (make-parameter #f))
@@ -97,10 +104,6 @@
          (list (syntax->srcloc stx))]
         [_ null]))))
 
-;; A "next tactic" procedure that doesn't work. Used at the end of scripts.
-(define-for-syntax (no-more-tactics)
-  (raise-syntax-error 'no-more-tactics "No more tactics." (current-tactic-location)))
-
 ;; The hole macro runs the tactic that is associated with its key in
 ;; the state.
 (define-syntax (hole stx)
@@ -120,6 +123,10 @@
     (hash-set! (tactic-state-hole-tactics the-state) id tac)
     (syntax-property (set-id #'hole id) 'params (current-parameterization)))
 
+  ;; A "next tactic" procedure that doesn't work. Used at the end of scripts.
+  (define (no-more-tactics)
+    (hole-with-tactic (lambda (h n-t) ((no-more-tactics-hook) h))))
+  
   ;; A tactic that does nothing.
   (define/contract (skip hole make-hole)
     tactic/c
