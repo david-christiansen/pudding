@@ -1,7 +1,8 @@
 #lang racket
 
 (require (except-in "lcfish.rkt" run-script)
-         (for-syntax racket/contract racket/match racket/promise syntax/parse racket/port syntax/srcloc)
+         (for-syntax "stx-utils.rkt"
+                     racket/contract racket/match racket/promise syntax/parse racket/port syntax/srcloc)
          racket/stxparam
          (for-template racket/base))
 
@@ -13,7 +14,8 @@
 (define-syntax (define-type stx)
   (syntax-case stx ()
     [(_ id)
-     #'(define-syntax (id stx) (raise-syntax-error 'id "Not available for programs" stx))]))
+     #'(define-syntax (id stx)
+         (raise-syntax-error 'id "Not available for programs" stx))]))
 
 (define-type Int)
 (define-type String)
@@ -64,10 +66,6 @@
    'params (current-parameterization)))
 
 (begin-for-syntax
-  (define (leftmost v)
-    (cond
-      [(pair? v) (leftmost (car v))]
-      [else v]))
 
   (define (get-goal stx)
     (leftmost (syntax-property stx 'goal)))
