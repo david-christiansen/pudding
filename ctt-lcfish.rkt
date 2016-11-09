@@ -131,7 +131,13 @@
     (pattern (#%plain-app u:id (quote i))
              #:when (and (constructs? #'U #'u)
                          (exact-nonnegative-integer? (syntax-e #'i)))
-             #:with level (syntax-e #'i))))
+             #:with level (syntax-e #'i)))
+
+  (define-syntax-class Eq
+    #:literal-sets (kernel-literals)
+    #:attributes (type left right)
+    (pattern (#%plain-app eq:id type right left)
+             #:when (constructs? #'≡ #'eq))))
   
 
 (define-for-syntax (todo hole make-hole)
@@ -142,6 +148,7 @@
 (begin-for-syntax
   (define-syntax-parameter subgoal
     (lambda (_) (raise-syntax-error 'subgoal "Not in a rule")))
+  
   (define-syntax (rule stx)
     (syntax-parse stx
       [(_ goal-pat result ...)
@@ -264,8 +271,10 @@
                   [(⊢ H G)
                    (syntax-parse G
                      #:literal-sets (kernel-literals)
-                     [(#%plain-app eq u1:Uni u2:Uni u3:Uni)
-                      #:when (constructs? #'≡ #'eq)
+                     [eq:Eq
+                      #:with u1:Uni #'eq.type
+                      #:with u2:Uni #'eq.left
+                      #:with u3:Uni #'eq.right
                       (and (< (syntax-e (attribute u2.level))
                               (syntax-e (attribute u1.level)))
                            (= (syntax-e (attribute u2.level))
@@ -285,6 +294,69 @@
   (check-equal? yep (void)))
 
 
+;                                                                                  
+;                                                                                  
+;                                                        ;;                        
+;    ;;;;;;                                  ;;;;        ;;       ;;               
+;    ;;;;;;                                  ;;;;                 ;;               
+;    ;;                                        ;;                 ;;               
+;    ;;        ;;; ;;   ;;   ;;    ;;;;        ;;      ;;;;     ;;;;;;;   ;;    ;; 
+;    ;;        ;;;;;;   ;;   ;;   ;;;;;;       ;;      ;;;;     ;;;;;;;   ;;    ;; 
+;    ;;;;;    ;;  ;;;   ;;   ;;   ;;   ;;      ;;        ;;       ;;      ;;    ;; 
+;    ;;;;;    ;;   ;;   ;;   ;;        ;;      ;;        ;;       ;;       ;;  ;;  
+;    ;;       ;;   ;;   ;;   ;;     ;;;;;      ;;        ;;       ;;       ;;  ;;  
+;    ;;       ;;   ;;   ;;   ;;    ;;;;;;      ;;        ;;       ;;        ;  ;;  
+;    ;;       ;;   ;;   ;;   ;;   ;;   ;;      ;;        ;;       ;;        ;;;;   
+;    ;;       ;;   ;;   ;;   ;;   ;;   ;;      ;;        ;;       ;;         ;;;   
+;    ;;       ;;  ;;;   ;;  ;;;   ;;   ;;      ;;        ;;       ;;  ;      ;;;   
+;    ;;;;;;    ;;;;;;   ;;;;;;;   ;;;;;;;   ;;;;;;;   ;;;;;;;;    ;;;;;;     ;;    
+;    ;;;;;;    ;;; ;;    ;;; ;;    ;;; ;;   ;;;;;;;   ;;;;;;;;     ;;;;      ;;    
+;                  ;;                                                       ;;     
+;                  ;;                                                       ;;     
+;                  ;;                                                       ;;     
+
+
+(begin-for-syntax
+  ;; TODO: formation, ordinary reflexivity
+  (define equality-identity
+    (rule (⊢ H G)
+          (syntax-parse G
+            #:literals (void)
+            #:literal-sets (kernel-literals)
+            [eq:Eq
+             #:with (#%plain-app void) #'eq.left
+             #:with (#%plain-app void) #'eq.right
+             #:with (~and todo eq2:Eq) #'eq.type
+             (subgoal (⊢ H #'eq2))])))
+  
+  (define ((assumption-refl n) hole make-hole)
+    (match-define (⊢ H G) (get-goal hole))
+    (define assumptions (length H))
+    (cond
+      [(not (exact-nonnegative-integer? n))
+       ((fail (format "Bad assumption number ~a" n)) hole make-hole)]
+      [(>= n assumptions)
+       ((fail (format "Assumption ~a requested, but there are only ~a" n assumptions))
+        hole make-hole)]
+      [else
+       ;; Hiddenness is ignored, because this extract is always trivial.
+       (match-define (at-hyp n Δ (hyp x ty _) Γ)
+         H)
+       (syntax-parse G
+         #:literal-sets (kernel-literals)
+         [(#%plain-app eq in-ty h1 h2)
+          #:when (and (constructs? #'≡ #'eq)
+                      (bound-identifier=? x #'h1)
+                      (bound-identifier=? x #'h2)
+                      (let ([Γ-ids (immutable-bound-id-set (map hyp-type Γ))])
+                        (α-equiv? Γ-ids #'in-ty ty)))
+          #'(void)]
+         [_ ((fail (format "Assumption/goal mismatch ~a. Expected ~a, got ~a."
+                          n
+                          (local-expand #`(≡ #,ty #,x #,x) 'expression null)
+                          G))
+             hole make-hole)])]))
+)
 
 
 ;                                                                                            
@@ -431,7 +503,20 @@
                         (equal-universe (assumption 0)))))
   (check-true (procedure? U1-identity))
   (check-equal? (U1-identity (Nat)) (Nat))
+
+  (define U1-refl
+    (run-script #:goal (Π (U 2) (λ (ty) (≡ (U 2) ty ty)))
+                (then-l (Π-intro 3 't)
+                        (equal-universe (assumption-refl 0)))))
+  (check-true (procedure? U1-refl))
+  (check-equal? (U1-refl (Nat)) (void))
+
+  (define U1-refl-proof
+    (run-script #:goal (≡ (≡ (U 2) (U 1) (U 1)) (void) (void))
+                equality-identity
+                equal-universe))
   )
+  
 
 
 ;                                                                                  
