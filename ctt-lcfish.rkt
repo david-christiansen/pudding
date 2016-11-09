@@ -823,3 +823,48 @@
 ;
 ;
 ;
+
+(begin-for-syntax
+  (define nat-formation
+    (rule (⊢ H G)
+          #:when (syntax-parse G
+                   [u:Uni #t]
+                   [_     #f])
+          #'(Nat)))
+  (define nat-equality
+    (rule (⊢ H G)
+          (syntax-parse G
+            #:literal-sets (kernel-literals)
+            [eq:Eq
+             #:with u:Uni #'eq.type
+             #:with (#%plain-app n1) #'eq.left
+             #:with (#%plain-app n2) #'eq.right
+             #:when (and (constructs? #'Nat #'n1)
+                         (constructs? #'Nat #'n2))
+             #'(void)]
+            [_ (not-applicable)])))
+  (define (nat-intro i)
+    (rule (⊢ H G)
+          (syntax-parse G
+            #:literal-sets (kernel-literals)
+            [(#%plain-app n:id)
+             #:when (and (exact-nonnegative-integer? i)
+                         (constructs? #'Nat #'n))
+             #`'#,i]
+            [_ (not-applicable)]))))
+
+(module+ test
+  (define my-Nat-type
+    (run-script #:goal (U 0)
+                nat-formation))
+  (check-equal? my-Nat-type (Nat))
+
+  (define nat-is-nat
+    (run-script #:goal (≡ (U 0) (Nat) (Nat))
+                nat-equality))
+  (check-equal? nat-is-nat (void))
+
+  (define sixteen
+    (run-script #:goal (Nat)
+                (nat-intro 16)))
+  (check-equal? sixteen 16))
