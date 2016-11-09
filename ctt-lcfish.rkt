@@ -38,22 +38,78 @@
          (if visible?
              (printf "~a. [~a : ~a]\n" (sub1 i) (syntax-e x) (syntax->datum t))
              (printf "~a. ~a : ~a\n" (sub1 i) (syntax-e x) (syntax->datum t)))]))
-    (printf "⊢ ~a\n\n" (syntax->datum G))))
+    (printf "⊢ ~a\n\n" (syntax->datum G)))
 
+  (no-more-tactics-hook (lambda (hole-stx)
+                          (define message
+                            (with-output-to-string
+                                (lambda ()
+                                  (printf "Unsolved goal:\n")
+                                  (dump-goal hole-stx))))
+                          (raise-syntax-error 'run-script
+                                              message
+                                              (current-tactic-location)))))
+
+
+
+
+;                                                                        
+;                                                                        
+;                                                                        
+;    ;;;;;                         ;;;;                    ;;            
+;    ;;;;;;                        ;;;;                    ;;            
+;    ;;   ;;                         ;;                    ;;            
+;    ;;   ;;   ;; ;;;     ;;;        ;;     ;;   ;;    ;;; ;;     ;;;    
+;    ;;   ;;   ;;;;;;;   ;;;;;       ;;     ;;   ;;    ;;;;;;    ;;;;;   
+;    ;;   ;;   ;;;  ;   ;;   ;;      ;;     ;;   ;;   ;;  ;;;   ;;   ;;  
+;    ;;;;;;    ;;       ;;   ;;      ;;     ;;   ;;   ;;   ;;   ;;   ;;  
+;    ;;;;;     ;;       ;;;;;;;      ;;     ;;   ;;   ;;   ;;   ;;;;;;;  
+;    ;;        ;;       ;;;;;;;      ;;     ;;   ;;   ;;   ;;   ;;;;;;;  
+;    ;;        ;;       ;;           ;;     ;;   ;;   ;;   ;;   ;;       
+;    ;;        ;;       ;;           ;;     ;;   ;;   ;;   ;;   ;;       
+;    ;;        ;;       ;;;  ;       ;;     ;;  ;;;   ;;  ;;;   ;;;  ;   
+;    ;;        ;;        ;;;;;;   ;;;;;;;   ;;;;;;;    ;;;;;;    ;;;;;;  
+;    ;;        ;;         ;;;;    ;;;;;;;    ;;; ;;    ;;; ;;     ;;;;   
+;                                                                        
+;                                                                        
+;                                                                        
 
 
 (struct U (level) #:transparent)
 (struct Nat () #:transparent)
+(struct Absurd () #:transparent)
 (struct Listof (element-type) #:transparent)
 (struct Π (domain codomain) #:transparent)
 (struct ≡ (type left right) #:transparent)
-
 
 
 (define (ind-Nat target base step)
   (if (zero? target)
       base
       (step (ind-Nat (sub1 target) base step))))
+
+
+;                                                              
+;                                                              
+;                                                              
+;     ;;;;;                         ;;                         
+;    ;;;;;;;                        ;;                         
+;    ;;   ;                         ;;                         
+;    ;;       ;;    ;;  ;; ;;;    ;;;;;;;    ;;;;     ;;    ;; 
+;    ;;;      ;;    ;;  ;;;;;;;   ;;;;;;;   ;;;;;;    ;;    ;; 
+;     ;;;     ;;    ;;  ;;;  ;;     ;;      ;;   ;;    ;;  ;;  
+;      ;;;     ;;  ;;   ;;   ;;     ;;           ;;     ;;;;   
+;       ;;;    ;;  ;;   ;;   ;;     ;;        ;;;;;     ;;;;   
+;        ;;;    ;  ;;   ;;   ;;     ;;       ;;;;;;      ;;    
+;         ;;    ;;;;    ;;   ;;     ;;      ;;   ;;     ;;;;   
+;    ;    ;;     ;;;    ;;   ;;     ;;      ;;   ;;    ;;;;;;  
+;   ;;;  ;;;     ;;;    ;;   ;;     ;;  ;   ;;   ;;    ;;  ;;  
+;    ;;;;;;      ;;     ;;   ;;     ;;;;;;  ;;;;;;;   ;;    ;; 
+;     ;;;;       ;;     ;;   ;;      ;;;;    ;;; ;;   ;;    ;; 
+;               ;;                                             
+;               ;;                                             
+;               ;;                                             
+
 
 ;; The arguments should be:
 ;;  1. bound-id-table mapping bound identifiers to new syntax objects
@@ -137,31 +193,86 @@
     #:literal-sets (kernel-literals)
     #:attributes (type left right)
     (pattern (#%plain-app eq:id type right left)
-             #:when (constructs? #'≡ #'eq))))
+             #:when (constructs? #'≡ #'eq)))
+
+  (define-syntax-class Abs
+    #:literal-sets (kernel-literals)
+    #:attributes ()
+    (pattern (#%plain-app abs:id)
+             #:when (constructs? #'Absurd #'abs))))
   
 
 (define-for-syntax (todo hole make-hole)
   ((fail (with-output-to-string (lambda () (dump-goal (get-goal hole)))))
    hole make-hole))
 
-;; General tools for rules
+
+;                                                                                            
+;                                                                                            
+;                                                                                            
+;    ;;;;;               ;;;;                          ;;;;;                 ;;;;            
+;    ;;;;;;              ;;;;                          ;;;;;;               ;;;;;;           
+;    ;;   ;;               ;;                          ;;  ;;               ;;  ;            
+;    ;;   ;;  ;;   ;;      ;;       ;;;                ;;   ;;    ;;;       ;;      ;; ;;;   
+;    ;;   ;;  ;;   ;;      ;;      ;;;;;               ;;   ;;   ;;;;;    ;;;;;;;   ;;;;;;;  
+;    ;;   ;;  ;;   ;;      ;;     ;;   ;;              ;;   ;;  ;;   ;;   ;;;;;;;   ;;;  ;;  
+;    ;;;;;;   ;;   ;;      ;;     ;;   ;;              ;;   ;;  ;;   ;;     ;;      ;;   ;;  
+;    ;;;;;    ;;   ;;      ;;     ;;;;;;;              ;;   ;;  ;;;;;;;     ;;      ;;   ;;  
+;    ;;  ;;   ;;   ;;      ;;     ;;;;;;;              ;;   ;;  ;;;;;;;     ;;      ;;   ;;  
+;    ;;  ;;   ;;   ;;      ;;     ;;                   ;;   ;;  ;;          ;;      ;;   ;;  
+;    ;;  ;;;  ;;   ;;      ;;     ;;                   ;;   ;;  ;;          ;;      ;;   ;;  
+;    ;;   ;;  ;;  ;;;      ;;     ;;;  ;               ;;  ;;   ;;;  ;      ;;      ;;   ;;  
+;    ;;   ;;  ;;;;;;;   ;;;;;;;    ;;;;;;              ;;;;;;    ;;;;;;     ;;      ;;   ;;  
+;    ;;   ;;   ;;; ;;   ;;;;;;;     ;;;;               ;;;;;      ;;;;      ;;      ;;   ;;  
+;                                                                                            
+;                                                                                            
+;                                                                                            
+
 (begin-for-syntax
   (define-syntax-parameter subgoal
     (lambda (_) (raise-syntax-error 'subgoal "Not in a rule")))
+
+  ;; TODO: find the right name here
+  (define-syntax-parameter not-applicable
+    (lambda (_) (raise-syntax-error 'not-applicable "Not in a rule")))
   
   (define-syntax (rule stx)
     (syntax-parse stx
-      [(_ goal-pat result ...)
-       #'(lambda (hole make-hole)
+      [(_ goal-pat #:when condition result ...+)
+       (syntax/loc stx
+         (lambda (hole make-hole)
+           (struct exn:fail:this-rule exn:fail ()
+             #:extra-constructor-name make-exn:fail:this-rule)
            (define (make-subgoal g)
              (set-goal (make-hole) g))
-           (syntax-parameterize ([subgoal (make-rename-transformer #'make-subgoal)])
-             (match (get-goal hole)
-               [goal-pat result ...]
-               [other ((fail (string-append "Wrong goal:\n"
-                                            (with-output-to-string
-                                                (lambda () (dump-goal other)))))
-                       hole make-hole)])))]))
+           (syntax-parameterize ([subgoal (make-rename-transformer #'make-subgoal)]
+                                 [not-applicable
+                                  (lambda (nope-stx)
+                                    (syntax-case nope-stx ()
+                                      [(_ msg)
+                                       #'(raise (make-exn:fail:this-rule
+                                                 msg
+                                                 (current-continuation-marks)))]
+                                      [(_)
+                                       #'(raise (make-exn:fail:this-rule
+                                                 (string-append
+                                                  "Not applicable at goal:\n"
+                                                  (with-output-to-string
+                                                      (lambda ()
+                                                        (dump-goal (get-goal hole)))))
+                                                 (current-continuation-marks)))]))])
+             (with-handlers ([exn:fail:this-rule?
+                              (lambda (e)
+                                ((fail (exn-message e)) hole make-hole))])
+               (match (get-goal hole)
+                 [goal-pat #:when condition result ...]
+                 [other ((fail (string-append "Wrong goal:\n"
+                                              (with-output-to-string
+                                                  (lambda () (dump-goal other)))))
+                         hole make-hole)])))))]
+      [(_ goal-pat result ...+)
+       (syntax/loc stx
+         (rule goal-pat #:when #t result ...))]))
   
   (define ((guard-goal pred tac) hole make-hole)
     (match (get-goal hole)
@@ -229,8 +340,7 @@
                               n
                               G
                               ty))
-                hole make-hole)])]))
-  )
+                hole make-hole)])])))
 
 ;                                                                                  
 ;                                                                                  
@@ -317,7 +427,37 @@
 
 
 (begin-for-syntax
-  ;; TODO: formation, ordinary reflexivity
+  ;; This really needs dependent refinement!
+  (define (equality-formation A)
+    (rule (⊢ H G)
+          (syntax-parse G
+            [u:Uni
+             #`(side-conditions
+                #,(subgoal (⊢ H (local-expand #`(≡ u #,A #,A) 'expression null)))
+                (≡ #,A
+                   #,(subgoal (⊢ H A))
+                   #,(subgoal (⊢ H A))))]
+            [other (not-applicable)])))
+  (define equality-equality
+    (rule (⊢ H G)
+          (syntax-parse G
+            [eq:Eq
+             #:with u:Uni #'eq.type
+             #:with inner1:Eq #'eq.left
+             #:with inner2:Eq #'eq.right
+             #`(side-conditions
+                #,(subgoal (⊢ H (local-expand #'(≡ u inner1.type inner2.type)
+                                              'expression
+                                              null)))
+                #,(subgoal (⊢ H (local-expand #'(≡ inner1.type inner1.left inner2.left)
+                                              'expression
+                                              null)))
+                #,(subgoal (⊢ H (local-expand #'(≡ inner1.type inner1.right inner2.right)
+                                              'expression
+                                              null)))
+                (void))]
+            [_ (not-applicable)])))
+  
   (define equality-identity
     (rule (⊢ H G)
           (syntax-parse G
@@ -327,7 +467,8 @@
              #:with (#%plain-app void) #'eq.left
              #:with (#%plain-app void) #'eq.right
              #:with (~and todo eq2:Eq) #'eq.type
-             (subgoal (⊢ H #'eq2))])))
+             (subgoal (⊢ H #'eq2))]
+            [_ (not-applicable)])))
   
   (define ((assumption-refl n) hole make-hole)
     (match-define (⊢ H G) (get-goal hole))
@@ -346,18 +487,37 @@
          #:literal-sets (kernel-literals)
          [(#%plain-app eq in-ty h1 h2)
           #:when (and (constructs? #'≡ #'eq)
-                      (bound-identifier=? x #'h1)
-                      (bound-identifier=? x #'h2)
+                      ;; TODO: this doesn't give the expected answer with bound-id=?,
+                      ;; but this may also be wrong. Think about it, and ask Sam.
+                      (free-identifier=? x #'h1)
+                      (free-identifier=? x #'h2)
                       (let ([Γ-ids (immutable-bound-id-set (map hyp-type Γ))])
                         (α-equiv? Γ-ids #'in-ty ty)))
           #'(void)]
          [_ ((fail (format "Assumption/goal mismatch ~a. Expected ~a, got ~a."
                           n
-                          (local-expand #`(≡ #,ty #,x #,x) 'expression null)
-                          G))
-             hole make-hole)])]))
-)
+                          (syntax->datum
+                           (local-expand #`(≡ #,ty #,x #,x) 'expression null))
+                          (syntax->datum G)))
+             hole make-hole)])])))
 
+
+(module+ test
+  (define U1≡U0
+    (run-script #:goal (U 3)
+                (then-l (equality-formation (local-expand #'(U 2) 'expression null))
+                        (equal-universe
+                         (intro-universe 1)
+                         (intro-universe 0)))))
+  (check-equal? U1≡U0 (≡ (U 2) (U 1) (U 0)))
+
+  (define an-eq-eq
+    (run-script #:goal (≡ (U 2)
+                          (≡ (U 1) (U 0) (U 0))
+                          (≡ (U 1) (U 0) (U 0)))
+                equality-equality
+                equal-universe))
+  (check-true (void? an-eq-eq)))
 
 ;                                                                                            
 ;                                                                                            
@@ -426,7 +586,8 @@
                                                     x
                                                     (lambda (good-x)
                                                       (⊢ (cons (hyp good-x dom #f) H)
-                                                         G))))))])))
+                                                         G))))))]
+            [_ (not-applicable)])))
 
   (define (Π-in-uni (new-var (gensym 'y)))
     (rule (⊢ H G)
@@ -454,7 +615,8 @@
                                                 (local-expand #`(≡ u #,renamed-c #,renamed-d)
                                                               'expression
                                                               null))))))
-                (void))])))
+                (void))]
+            [_ (not-applicable)])))
 
   (define (Π-intro i (var #f))
     (if (exact-nonnegative-integer? i)
@@ -474,7 +636,8 @@
                                            (lambda (the-var)
                                              (⊢ (cons (hyp the-var #'dom #f) H)
                                                 (subst (make-bound-id-table (list (cons #'x the-var)))
-                                                       #'cod))))))]))
+                                                       #'cod))))))]
+             [_ (not-applicable)]))
      (fail (format "Π-intro: not a valid level: ~a" i))))
   
   )
@@ -517,6 +680,86 @@
                 equal-universe))
   )
   
+
+
+;                                                                                            
+;                                                                                            
+;                                                                  ;;                        
+;      ;;      ;;                                          ;;      ;;       ;;               
+;      ;;      ;;                                          ;;               ;;               
+;     ;;;;     ;;                                          ;;               ;;               
+;     ;;;;     ;; ;;;     ;;;;    ;;   ;;    ;; ;;;    ;;; ;;    ;;;;     ;;;;;;;   ;;    ;; 
+;     ;;;;     ;;;;;;   ;;;;;;;   ;;   ;;    ;;;;;;;   ;;;;;;    ;;;;     ;;;;;;;   ;;    ;; 
+;     ;  ;     ;;;  ;;  ;;   ;    ;;   ;;    ;;;  ;   ;;  ;;;      ;;       ;;      ;;    ;; 
+;    ;;  ;;    ;;   ;;  ;;        ;;   ;;    ;;       ;;   ;;      ;;       ;;       ;;  ;;  
+;    ;;  ;;    ;;   ;;  ;;;;      ;;   ;;    ;;       ;;   ;;      ;;       ;;       ;;  ;;  
+;    ;;  ;;    ;;   ;;   ;;;;;    ;;   ;;    ;;       ;;   ;;      ;;       ;;        ;  ;;  
+;    ;;;;;;    ;;   ;;     ;;;;   ;;   ;;    ;;       ;;   ;;      ;;       ;;        ;;;;   
+;   ;;;;;;;;   ;;   ;;       ;;   ;;   ;;    ;;       ;;   ;;      ;;       ;;         ;;;   
+;   ;;    ;;   ;;;  ;;  ;;   ;;   ;;  ;;;    ;;       ;;  ;;;      ;;       ;;  ;      ;;;   
+;   ;;    ;;   ;;;;;;   ;;;;;;;   ;;;;;;;    ;;        ;;;;;;   ;;;;;;;;    ;;;;;;     ;;    
+;   ;;    ;;   ;; ;;;    ;;;;;     ;;; ;;    ;;        ;;; ;;   ;;;;;;;;     ;;;;      ;;    
+;                                                                                     ;;     
+;                                                                                     ;;     
+;                                                                                     ;;     
+
+(begin-for-syntax
+  (define absurd-formation
+    (rule (⊢ H G)
+          (syntax-parse G
+            [u:Uni
+             #'(Absurd)]
+            [_ (not-applicable)])))
+  (define absurd-equality
+    (rule (⊢ H G)
+          (syntax-parse G
+            [eq:Eq
+             #:with u:Uni #'eq.type
+             #:with a1:Abs #'eq.left
+             #:with a2:Abs #'eq.right
+             #'(void)]
+            [_ (not-applicable)])))
+  (define (absurd-elim n)
+    (rule (⊢ (at-hyp n Δ (hyp x ty _) Γ) G)
+          #:when (syntax-parse ty [a:Abs #t] [_ #f])
+          #`(error #,x)))
+  (define absurd-member
+    (rule (⊢ H G)
+          (syntax-parse G
+            #:literal-sets (kernel-literals)
+            #:literals (error)
+            [eq:Eq
+             #:with (#%plain-app error x) #'eq.left
+             #:with (#%plain-app error y) #'eq.right
+             #`(side-conditions
+                #,(subgoal (⊢ H (local-expand #'(≡ (Absurd) x y)
+                                              'expression
+                                              null)))
+                (void))]))))
+
+(module+ test
+  (define absurd-ty
+    (run-script #:goal (U 0)
+                absurd-formation))
+  (check-equal? absurd-ty (Absurd))
+  (define absurd-is-absurd
+    (run-script #:goal (≡ (U 0) (Absurd) (Absurd))
+                absurd-equality))
+  (check-equal? absurd-is-absurd (void))
+  (define absurd→absurd
+    (run-script #:goal (Π (Absurd) (λ (_) (Absurd)))
+                (then-l
+                 (Π-intro 0 'h)
+                 (absurd-equality (assumption 0)))))
+  (check-true (procedure? absurd→absurd))
+  (define absurdities-abound
+    (run-script #:goal (Π (Absurd)
+                          (λ (oops) (≡ (Nat) (error oops) (error oops))))
+                (then-l
+                 (Π-intro 0 'h)
+                 (absurd-equality absurd-member))
+                (assumption-refl 0)))
+  )
 
 
 ;                                                                                  
