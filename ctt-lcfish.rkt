@@ -6,7 +6,6 @@
                      racket/match
                      racket/port
                      racket/set
-                     racket/struct-info
                      racket/stxparam
                      syntax/id-set
                      syntax/id-table
@@ -36,9 +35,9 @@
       (match h
         [(hyp x t visible?)
          (if visible?
-             (printf "~a. [~a : ~a]\n" (sub1 i) (syntax-e x) (syntax->datum t))
-             (printf "~a. ~a : ~a\n" (sub1 i) (syntax-e x) (syntax->datum t)))]))
-    (printf "⊢ ~a\n\n" (syntax->datum G)))
+             (printf "~a. [~a : ~a]\n" (sub1 i) (syntax-e x) (syntax->datum (unexpand t)))
+             (printf "~a. ~a : ~a\n" (sub1 i) (syntax-e x) (syntax->datum (unexpand t))))]))
+    (printf "⊢ ~a\n\n" (syntax->datum (unexpand G))))
 
   (no-more-tactics-hook (lambda (hole-stx)
                           (define message
@@ -48,7 +47,30 @@
                                   (dump-goal hole-stx))))
                           (raise-syntax-error 'run-script
                                               message
-                                              (current-tactic-location)))))
+                                              (current-tactic-location))))
+  
+  (define-logger online-check-syntax)
+  (tactic-info-hook
+   (lambda (hole-stx)
+     (define where (current-tactic-location))
+     (match (get-goal hole-stx)
+       [(? ⊢? g)
+        (define goal (with-output-to-string
+                         (lambda ()
+                           (dump-goal g))))
+        (log-message online-check-syntax-logger
+                     'info
+                     goal
+                     (list (syntax-property #'(void)
+                                            'mouse-over-tooltips
+                                            (vector where
+                                                    (syntax-position where)
+                                                    (+ (syntax-position where)
+                                                       (syntax-span where))
+                                                    (format "~a:\n~a"
+                                                            (syntax->datum where)
+                                                            goal)))))]
+       [_ (void)]))))
 
 
 
@@ -118,8 +140,8 @@
   (kernel-syntax-case stx #f
     [(quote e) #'(quote e)]
     [x (identifier? #'x)
-     (let ([val (bound-id-table-ref to-subst #'x #f)])
-       (if val val #'x))]
+       (let ([val (bound-id-table-ref to-subst #'x #f)])
+         (if val val #'x))]
     [(#%plain-app e ...)
      #`(#%plain-app #,@(map (subst* to-subst) (syntax-e #'(e ...))))]
     [(#%plain-lambda (arg ...) body ...)
@@ -139,11 +161,11 @@
      (and (identifier? #'x1) (identifier? #'x2))
      (begin 
        (cond
-       [(set-member? ctxt #'x1)
-        (bound-identifier=? #'x1 #'x2)]
-       [(set-member? ctxt #'x2)
-        #f]
-       [else (free-identifier=? #'x1 #'x2)]))]
+         [(set-member? ctxt #'x1)
+          (bound-identifier=? #'x1 #'x2)]
+         [(set-member? ctxt #'x2)
+          #f]
+         [else (free-identifier=? #'x1 #'x2)]))]
     [((#%plain-app e1 ...) (#%plain-app e2 ...))
      (let ([l1 (syntax-e #'(e1 ...))]
            [l2 (syntax-e #'(e2 ...))])
@@ -156,12 +178,13 @@
            [body-list2 (syntax-e #'(body2 ...))])
        (if (and (= (length arglist1) (length arglist2)))
            (let ([substitution (make-immutable-bound-id-table (map cons arglist2 arglist1))])
-            (andmap (lambda (b1 b2)
-                      (α-equiv? (bound-id-set-union ctxt (immutable-bound-id-set arglist1))
-                                b1 (subst substitution b2)))
-                    body-list1
-                    body-list2))
+             (andmap (lambda (b1 b2)
+                       (α-equiv? (bound-id-set-union ctxt (immutable-bound-id-set arglist1))
+                                 b1 (subst substitution b2)))
+                     body-list1
+                     body-list2))
            #f))]))
+
 
 
 (define-syntax (run-script stx)
@@ -206,6 +229,20 @@
   ((fail (with-output-to-string (lambda () (dump-goal (get-goal hole)))))
    hole make-hole))
 
+;; For showing error messages etc
+(define-for-syntax (unexpand stx)
+  (syntax-parse stx
+    #:literal-sets (kernel-literals)
+    [u:Uni
+     #'(U u.level)]
+    [eq:Eq
+     #`(≡ #,(unexpand #'eq.type) #,(unexpand #'eq.left) #,(unexpand #'eq.right))]
+    [(#%plain-app e ...)
+     (datum->syntax stx (map unexpand (syntax->list #'(e ...))))]
+    [(#%plain-lambda (x ...) e ...)
+     #`(λ (x ...)
+         #,(datum->syntax #'(e ...) (map unexpand (syntax->list #'(e ...)))))]
+    [other #'other]))
 
 ;                                                                                            
 ;                                                                                            
@@ -241,6 +278,7 @@
       [(_ goal-pat #:when condition result ...+)
        (syntax/loc stx
          (lambda (hole make-hole)
+           ((tactic-info-hook) hole)
            (struct exn:fail:this-rule exn:fail ()
              #:extra-constructor-name make-exn:fail:this-rule)
            (define (make-subgoal g)
@@ -286,26 +324,28 @@
   (define emit-void (emit #'(void))))
 
 
-;                                          
-;                                          
-;                ;;                        
-;   ;;   ;;      ;;                        
-;   ;;   ;;                                
-;   ;;; ;;;                                
-;   ;;; ;;;    ;;;;       ;;;;       ;;;   
-;   ;;; ;;;    ;;;;     ;;;;;;;     ;;;;;; 
-;   ;;;; ;;      ;;     ;;   ;     ;;;  ;  
-;   ;; ; ;;      ;;     ;;         ;;      
-;   ;; ; ;;      ;;     ;;;;       ;;      
-;   ;;   ;;      ;;      ;;;;;     ;;      
-;   ;;   ;;      ;;        ;;;;    ;;      
-;   ;;   ;;      ;;          ;;    ;;      
-;   ;;   ;;      ;;     ;;   ;;    ;;;  ;  
-;   ;;   ;;   ;;;;;;;;  ;;;;;;;     ;;;;;; 
-;   ;;   ;;   ;;;;;;;;   ;;;;;       ;;;   
-;                                          
-;                                          
-;                                          
+
+;                                                                                                      
+;                                                                                                      
+;                ;;                                                                                    
+;   ;;   ;;      ;;                                    ;;;;;               ;;;;                        
+;   ;;   ;;                                            ;;;;;;              ;;;;                        
+;   ;;; ;;;                                            ;;   ;;               ;;                        
+;   ;;; ;;;    ;;;;       ;;;;       ;;;               ;;   ;;  ;;   ;;      ;;       ;;;       ;;;;   
+;   ;;; ;;;    ;;;;     ;;;;;;;     ;;;;;;             ;;   ;;  ;;   ;;      ;;      ;;;;;    ;;;;;;;  
+;   ;;;; ;;      ;;     ;;   ;     ;;;  ;              ;;   ;;  ;;   ;;      ;;     ;;   ;;   ;;   ;   
+;   ;; ; ;;      ;;     ;;         ;;                  ;;;;;;   ;;   ;;      ;;     ;;   ;;   ;;       
+;   ;; ; ;;      ;;     ;;;;       ;;                  ;;;;;    ;;   ;;      ;;     ;;;;;;;   ;;;;     
+;   ;;   ;;      ;;      ;;;;;     ;;                  ;;  ;;   ;;   ;;      ;;     ;;;;;;;    ;;;;;   
+;   ;;   ;;      ;;        ;;;;    ;;                  ;;  ;;   ;;   ;;      ;;     ;;           ;;;;  
+;   ;;   ;;      ;;          ;;    ;;                  ;;  ;;;  ;;   ;;      ;;     ;;             ;;  
+;   ;;   ;;      ;;     ;;   ;;    ;;;  ;              ;;   ;;  ;;  ;;;      ;;     ;;;  ;    ;;   ;;  
+;   ;;   ;;   ;;;;;;;;  ;;;;;;;     ;;;;;;             ;;   ;;  ;;;;;;;   ;;;;;;;    ;;;;;;   ;;;;;;;  
+;   ;;   ;;   ;;;;;;;;   ;;;;;       ;;;               ;;   ;;   ;;; ;;   ;;;;;;;     ;;;;     ;;;;;   
+;                                                                                                      
+;                                                                                                      
+;                                                                                                      
+                     
 
 
 (begin-for-syntax
@@ -495,10 +535,10 @@
                         (α-equiv? Γ-ids #'in-ty ty)))
           #'(void)]
          [_ ((fail (format "Assumption/goal mismatch ~a. Expected ~a, got ~a."
-                          n
-                          (syntax->datum
-                           (local-expand #`(≡ #,ty #,x #,x) 'expression null))
-                          (syntax->datum G)))
+                           n
+                           (syntax->datum
+                            (local-expand #`(≡ #,ty #,x #,x) 'expression null))
+                           (syntax->datum G)))
              hole make-hole)])])))
 
 
@@ -566,11 +606,11 @@
    'params (current-parameterization)))
 
 (define-syntax (side-conditions stx)
-    (syntax-parse stx
-      [(_ condition ... result)
-       (for ([c (syntax->list #'(condition ...))])
-         (local-expand c 'expression null))
-       #'result]))
+  (syntax-parse stx
+    [(_ condition ... result)
+     (for ([c (syntax->list #'(condition ...))])
+       (local-expand c 'expression null))
+     #'result]))
 
 (begin-for-syntax
   (define (Π-formation x dom)
@@ -612,33 +652,34 @@
                                                      [renamed-d (subst (make-bound-id-table
                                                                         (list (cons #'y good-var)))
                                                                        #'d)])
-                                                (local-expand #`(≡ u #,renamed-c #,renamed-d)
-                                                              'expression
-                                                              null))))))
+                                                 (local-expand #`(≡ u #,renamed-c #,renamed-d)
+                                                               'expression
+                                                               null))))))
                 (void))]
             [_ (not-applicable)])))
 
   (define (Π-intro i (var #f))
     (if (exact-nonnegative-integer? i)
-     (rule (⊢ H G)
-           (syntax-parse G
-             #:literal-sets (kernel-literals)
-             [(#%plain-app pi dom (#%plain-lambda (x:id) cod))
-              #:when (constructs? #'Π #'pi)
-              (define y (if (symbol? var) var (syntax-e #'x)))
-              #`(side-conditions
-                 #,(subgoal (⊢ H (local-expand #`(≡ (U #,i) dom dom)
-                                               'expression
-                                               null)))
-                 (λ (#,y)
-                   #,(make-assumption-hole (lambda (g) (subgoal g))
-                                           y
-                                           (lambda (the-var)
-                                             (⊢ (cons (hyp the-var #'dom #f) H)
-                                                (subst (make-bound-id-table (list (cons #'x the-var)))
-                                                       #'cod))))))]
-             [_ (not-applicable)]))
-     (fail (format "Π-intro: not a valid level: ~a" i))))
+        (rule (⊢ H G)
+              (syntax-parse G
+                #:literal-sets (kernel-literals)
+                [(#%plain-app pi dom (#%plain-lambda (x:id) cod))
+                 #:when (constructs? #'Π #'pi)
+                 (define y (if (symbol? var) var (syntax-e #'x)))
+                 #`(side-conditions
+                    #,(subgoal (⊢ H (local-expand #`(≡ (U #,i) dom dom)
+                                                  'expression
+                                                  null)))
+                    (λ (#,y)
+                      #,(make-assumption-hole (lambda (g) (subgoal g))
+                                              y
+                                              (lambda (the-var)
+                                                (⊢ (cons (hyp the-var #'dom #f) H)
+                                                   (subst (make-bound-id-table
+                                                           (list (cons #'x the-var)))
+                                                          #'cod))))))]
+                [_ (not-applicable)]))
+        (fail (format "Π-intro: not a valid level: ~a" i))))
   
   )
 
@@ -735,7 +776,8 @@
                 #,(subgoal (⊢ H (local-expand #'(≡ (Absurd) x y)
                                               'expression
                                               null)))
-                (void))]))))
+                (void))]
+            [_ (not-applicable)]))))
 
 (module+ test
   (define absurd-ty
@@ -754,12 +796,12 @@
   (check-true (procedure? absurd→absurd))
   (define absurdities-abound
     (run-script #:goal (Π (Absurd)
-                          (λ (oops) (≡ (Nat) (error oops) (error oops))))
-                (then-l
-                 (Π-intro 0 'h)
-                 (absurd-equality absurd-member))
+                          (λ (oops)
+                            (≡ (Nat) (error oops) (error oops))))
+                (Π-intro 0 'h)
+                (try absurd-equality absurd-member)
                 (assumption-refl 0)))
-  )
+  (check-true (procedure? absurdities-abound)))
 
 
 ;                                                                                  
