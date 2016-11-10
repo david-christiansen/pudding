@@ -109,8 +109,10 @@
 (define (ind-Nat target base step)
   (if (zero? target)
       base
-      (step (ind-Nat (sub1 target) base step))))
+      (step (sub1 target) (ind-Nat (sub1 target) base step))))
 
+(define (monus . args)
+  (max 0 (apply - args)))
 
 ;
 ;
@@ -151,10 +153,26 @@
 
 (define-for-syntax (subst to-subst stx) ((subst* to-subst) stx))
 
+(define-for-syntax (simple-subst from to)
+  (make-immutable-bound-id-table (list (cons from to))))
+
+(define-for-syntax (subst1 from to expr)
+  (subst (simple-subst from to) expr))
+
+(define-for-syntax (subst-in-hyp σ h)
+  (match-define (hyp name type visible?) h)
+  (hyp name (subst σ h) visible?))
+
+
 ;; Arguments:
 ;;  ctxt - a set of bound variables
 ;;  stx1, stx2 - objectx to compare
 (define-for-syntax (α-equiv? ctxt stx1 stx2)
+  (define (arglist->set xs)
+    (for/fold ([the-set (immutable-bound-id-set)])
+              ([id xs])
+      bound-id-set-add the-set id))
+  
   (kernel-syntax-case #`(#,stx1 #,stx2) #f
     [((quote e1) (quote e2))
      (equal? (syntax->datum #'e1) (syntax->datum #'e2))]
@@ -180,7 +198,7 @@
        (if (and (= (length arglist1) (length arglist2)))
            (let ([substitution (make-immutable-bound-id-table (map cons arglist2 arglist1))])
              (andmap (lambda (b1 b2)
-                       (α-equiv? (bound-id-set-union ctxt (immutable-bound-id-set arglist1))
+                       (α-equiv? (bound-id-set-union ctxt (arglist->set arglist1))
                                  b1 (subst substitution b2)))
                      body-list1
                      body-list2))
@@ -231,8 +249,8 @@
    hole make-hole))
 
 ;; For showing error messages etc
-(define-for-syntax (unexpand stx)
-  (syntax-parse stx
+(define-for-syntax (unexpand stx) stx
+  #;(syntax-parse stx
     #:literal-sets (kernel-literals)
     [u:Uni
      #'(U u.level)]
@@ -373,7 +391,9 @@
              (cond
                [hidden?
                 (not-applicable (format "Assumption ~a is hidden" n))]
-               [(α-equiv? (immutable-bound-id-set (map hyp-type Γ))
+               [(α-equiv? (immutable-bound-id-set (for/fold ([the-set (immutable-bound-id-set)])
+                                                            ([h Γ])
+                                                    (bound-id-set-add the-set (hyp-name h))))
                           ty
                           G)
                 x]
@@ -588,16 +608,16 @@
   (define goal-maker (syntax-property stx 'goal-maker))
   (define params (syntax-property stx 'params))
   (syntax-case stx ()
-    [(_ x)
+    [(_ x y ...)
      (call-with-parameterization
       params
       (lambda ()
-        (make-next (goal-maker #'x))))]))
+        (make-next (apply goal-maker (syntax->list #'(x y ...))))))]))
 
-(define-for-syntax (make-assumption-hole next-hole x goal-maker)
+(define-for-syntax (make-assumption-hole next-hole goal-maker . xs)
   (syntax-property
    (syntax-property
-    (syntax-property #`(assumption-hole #,x)
+    (syntax-property #`(assumption-hole #,@xs)
                      'goal-maker
                      goal-maker)
     'next-hole next-hole)
@@ -621,10 +641,10 @@
                 #,dom-ok
                 (Π #,dom
                    (λ (#,x) #,(make-assumption-hole (lambda (g) (subgoal g))
-                                                    x
                                                     (lambda (good-x)
                                                       (⊢ (cons (hyp good-x dom #f) H)
-                                                         G))))))]
+                                                         G))
+                                                    x))))]
             [_ (not-applicable)])))
 
   (define (Π-in-uni (new-var (gensym 'y)))
@@ -641,7 +661,6 @@
                 #,(subgoal (⊢ H (local-expand #`(≡ u a b) 'expression null)))
                 (λ (#,new-var)
                   #,(make-assumption-hole (lambda (g) (subgoal g))
-                                          new-var
                                           (lambda (good-var)
                                             (⊢ (cons (hyp good-var #'a #f) H)
                                                (let ([renamed-c (subst (make-bound-id-table
@@ -652,7 +671,8 @@
                                                                        #'d)])
                                                  (local-expand #`(≡ u #,renamed-c #,renamed-d)
                                                                'expression
-                                                               null))))))
+                                                               null))))
+                                          new-var))
                 (void))]
             [_ (not-applicable)])))
 
@@ -670,12 +690,12 @@
                                                   null)))
                     (λ (#,y)
                       #,(make-assumption-hole (lambda (g) (subgoal g))
-                                              y
                                               (lambda (the-var)
                                                 (⊢ (cons (hyp the-var #'dom #f) H)
                                                    (subst (make-bound-id-table
                                                            (list (cons #'x the-var)))
-                                                          #'cod))))))]
+                                                          #'cod)))
+                                              y)))]
                 [_ (not-applicable)]))
         (fail (format "Π-intro: not a valid level: ~a" i))))
 
@@ -830,7 +850,7 @@
           #:when (syntax-parse G
                    [u:Uni #t]
                    [_     #f])
-          #'(Nat)))
+          (local-expand #'(Nat) 'expression null)))
   (define nat-equality
     (rule (⊢ H G)
           (syntax-parse G
@@ -851,7 +871,60 @@
              #:when (and (exact-nonnegative-integer? i)
                          (constructs? #'Nat #'n))
              #`'#,i]
-            [_ (not-applicable)]))))
+            [_ (not-applicable)])))
+
+  (define nat-intro-add1
+    (rule (⊢ H G)
+          (syntax-parse G
+            #:literal-sets (kernel-literals)
+            [(#%plain-app n:id)
+             #:when (constructs? #'Nat #'n)
+             #`(add1 #,(subgoal (⊢ H G)))]
+            [_ (not-applicable)])))
+
+  (define (nat-intro-arith op args)
+    (rule (⊢ H G)
+          #:when (and (exact-positive-integer? args)
+                      (member op '(+ * -)))
+          (syntax-parse G
+            #:literal-sets (kernel-literals)
+            [(#%plain-app nat)
+             #:when (constructs? #'Nat #'nat)
+             (define subgoals
+               (for/list ([i (in-range 0 args)])
+                 (subgoal (⊢ H G))))
+             #`(#,(match op
+                    ['+ #'+]
+                    ['* #'*]
+                    ['- #'monus])
+                #,@subgoals)])))
+  
+  (define (nat-elim n)
+    (rule (⊢ (and H (at-hyp n Δ (hyp x nat #f) Γ)) G)
+          (syntax-parse nat
+            #:literal-sets (kernel-literals)
+            [(#%plain-app n)
+             #:when (constructs? #'Nat #'n)
+             
+             (define base
+               (subgoal (⊢ H (subst1 x #'0 G))))
+             (define k #'k)
+             (define ih #'ih)
+             (define step
+               #`(λ (#,k #,ih)
+                   #,(make-assumption-hole
+                      (lambda (g) (subgoal g))
+                      (lambda (n ih)
+                        (⊢ (cons (hyp ih (subst1 x n G) #f)
+                                 (cons (hyp n nat #f)
+                                       H))
+                           (subst1 x #`(add1 #,n) G)))
+                      k
+                      ih)))
+             
+             #`(ind-Nat #,x
+                        #,base
+                        #,step)]))))
 
 (module+ test
   (define my-Nat-type
@@ -867,4 +940,33 @@
   (define sixteen
     (run-script #:goal (Nat)
                 (nat-intro 16)))
-  (check-equal? sixteen 16))
+  (check-equal? sixteen 16)
+  
+  (define plus
+    (run-script #:goal (Π (Nat) (λ (_)
+                            (Π (Nat) (λ (_)
+                                       (Nat)))))
+                (then-l
+                 (Π-intro 0 'n)
+                 (nat-equality (Π-intro 0 'm))
+                 (nat-equality))
+                (then-l
+                 (nat-elim 1)
+                 ((assumption 0) nat-intro-add1))
+                (assumption 0)))
+
+  (check-equal? ((plus 2) 5) 7)
+
+  (define another-plus
+    (run-script #:goal (Π (Nat) (λ (_)
+                                  (Π (Nat) (λ (_)
+                                             (Nat)))))
+                (Π-intro 0 'n)
+                (try nat-equality skip)
+                (Π-intro 0 'm)
+                (try nat-equality skip)
+                (then-l
+                 (nat-intro-arith '+ 2)
+                 ((assumption 0) (assumption 1)))))
+
+  (check-equal? ((another-plus 2) 5) 7))
