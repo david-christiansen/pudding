@@ -16,6 +16,7 @@
 
 (module+ test (require rackunit))
 
+
 (begin-for-syntax
   (struct hyp (name type visible?) #:transparent)
   (struct ⊢ (hyps goal) #:transparent)
@@ -205,17 +206,6 @@
            #f))]))
 
 
-
-(define-syntax (run-script stx)
-  (syntax-parse stx
-    [(run-script #:goal g tactic ...)
-     #`(syntax-parameterize ([tactic-debug-hook #,dump-goal])
-         (define-syntax (go s)
-           (parameterize ([current-tactic-location #'#,stx])
-             (set-goal (hole-with-tactic (then tactic ...))
-                       (⊢ null (local-expand #'g 'expression null)))))
-         (go))]))
-
 (define-for-syntax (constructs? struct-type-name identifier)
   ;; this seems wrong, but the struct transformer binding's notion of constructor is not
   ;; the right thing here...
@@ -262,6 +252,93 @@
      #`(λ (x ...)
          #,(datum->syntax #'(e ...) (map unexpand (syntax->list #'(e ...)))))]
     [other #'other]))
+
+
+;                                                                                  
+;                                                                                  
+;                                                                                  
+;   ;;;;;;;;  ;;                                                                   
+;   ;;;;;;;;  ;;                                                                   
+;      ;;     ;;                                                                   
+;      ;;     ;; ;;;      ;;;       ;;;      ;; ;;;     ;;;     ; ;; ;;     ;;;;   
+;      ;;     ;;;;;;;    ;;;;;     ;;;;;     ;;;;;;;   ;;;;;    ;;;;;;;;  ;;;;;;;  
+;      ;;     ;;;  ;;   ;;   ;;   ;;; ;;;    ;;;  ;   ;;   ;;   ;; ;; ;;  ;;   ;   
+;      ;;     ;;   ;;   ;;   ;;   ;;   ;;    ;;       ;;   ;;   ;; ;; ;;  ;;       
+;      ;;     ;;   ;;   ;;;;;;;   ;;   ;;    ;;       ;;;;;;;   ;; ;; ;;  ;;;;     
+;      ;;     ;;   ;;   ;;;;;;;   ;;   ;;    ;;       ;;;;;;;   ;; ;; ;;   ;;;;;   
+;      ;;     ;;   ;;   ;;        ;;   ;;    ;;       ;;        ;; ;; ;;     ;;;;  
+;      ;;     ;;   ;;   ;;        ;;   ;;    ;;       ;;        ;; ;; ;;       ;;  
+;      ;;     ;;   ;;   ;;;  ;    ;;; ;;;    ;;       ;;;  ;    ;; ;; ;;  ;;   ;;  
+;      ;;     ;;   ;;    ;;;;;;    ;;;;;     ;;        ;;;;;;   ;; ;; ;;  ;;;;;;;  
+;      ;;     ;;   ;;     ;;;;      ;;;      ;;         ;;;;    ;; ;; ;;   ;;;;;   
+;                                                                                  
+;                                                                                  
+;                                                                                  
+
+
+(define-syntax (run-script stx)
+  (syntax-parse stx
+    [(run-script #:goal g tactic ...)
+     #`(syntax-parameterize ([tactic-debug-hook #,dump-goal])
+         (define-syntax (go s)
+           (parameterize ([current-tactic-location #'#,stx])
+             (set-goal (hole-with-tactic (then tactic ...))
+                       (⊢ null (local-expand #'g 'expression null)))))
+         (go))]))
+
+(begin-for-syntax
+  ;; The result of running a tactic script is a transformer environment binding with metadata
+  ;; about the new value that expands to the extract syntax in phase 0.
+  (struct theorem-definition (type extract renamer)
+    #:transparent
+    #:property prop:rename-transformer (struct-field-index renamer)))
+
+(define-syntax (theorem stx)
+  (syntax-parse stx
+    [(_ name:id goal tactic1 tactic ...)
+     (quasisyntax/loc stx
+       (begin
+         (define-for-syntax expanded-goal (local-expand #'goal 'expression null))    
+         (define-syntax (get-extract s)
+           (parameterize ([current-tactic-location #'#,stx])
+             (set-goal (hole-with-tactic (then tactic1 tactic ...))
+                       (⊢ null expanded-goal))))
+         (define-for-syntax the-extract (local-expand #'(get-extract) 'expression null))
+         (define-syntax (my-extract s) the-extract)
+         (define runtime (my-extract))
+         (define-syntax name (theorem-definition expanded-goal the-extract #'runtime))))]))
+
+(module+ test
+  (theorem garbage (cons '(lotsa stuff) #f) (emit #'(cons #t #t)))
+
+  ;; Test the rename transformer bit
+  (check-equal? garbage (cons #t #t))
+
+  ;; Test the compile time info bit
+  (define-syntax (test-unfold-garbage stx)
+    (define-values (thm transformer?)
+      (syntax-local-value/immediate #'garbage))
+    (if transformer?
+        (match thm
+          [(theorem-definition ty ext _)
+           ;; Check that the type is saved correctly
+           (syntax-parse ty
+             #:literal-sets (kernel-literals)
+             #:literals (cons)
+             [(#%plain-app cons (quote (l s)) (quote #f))
+              (if (and (eqv? (syntax-e #'l) 'lotsa) (eqv? (syntax-e #'s) 'stuff))
+                  (syntax-parse ext
+                    #:literal-sets (kernel-literals)
+                    #:literals (cons)
+                    [(#%plain-app cons (quote #t) (quote #t))
+                     #''succeeded]
+                    [_ #''failed-1])
+                  #''failed-2)]
+             [_ #''failed-3])])
+        #''failed))
+  (check-eqv? 'succeeded test-unfold-garbage))
+
+
 
 ;
 ;
