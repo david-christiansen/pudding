@@ -7,6 +7,7 @@
                      racket/port
                      racket/set
                      racket/stxparam
+                     racket/syntax
                      syntax/id-set
                      syntax/id-table
                      syntax/kerncase
@@ -115,6 +116,8 @@
 (define (monus . args)
   (max 0 (apply - args)))
 
+(define axiom (void))
+
 ;
 ;
 ;
@@ -172,7 +175,7 @@
   (define (arglist->set xs)
     (for/fold ([the-set (immutable-bound-id-set)])
               ([id xs])
-      bound-id-set-add the-set id))
+      (bound-id-set-add the-set id)))
   
   (kernel-syntax-case #`(#,stx1 #,stx2) #f
     [((quote e1) (quote e2))
@@ -296,17 +299,19 @@
 (define-syntax (theorem stx)
   (syntax-parse stx
     [(_ name:id goal tactic1 tactic ...)
-     (quasisyntax/loc stx
-       (begin
-         (define-for-syntax expanded-goal (local-expand #'goal 'expression null))    
-         (define-syntax (get-extract s)
-           (parameterize ([current-tactic-location #'#,stx])
-             (set-goal (hole-with-tactic (then tactic1 tactic ...))
-                       (⊢ null expanded-goal))))
-         (define-for-syntax the-extract (local-expand #'(get-extract) 'expression null))
-         (define-syntax (my-extract s) the-extract)
-         (define runtime (my-extract))
-         (define-syntax name (theorem-definition expanded-goal the-extract #'runtime))))]))
+     (define runtime-name (generate-temporary #'name))
+     (with-syntax ([runtime runtime-name])
+       (quasisyntax/loc stx
+         (begin
+           (define-for-syntax expanded-goal (local-expand #'goal 'expression null))    
+           (define-syntax (get-extract s)
+             (parameterize ([current-tactic-location #'#,stx])
+               (set-goal (hole-with-tactic (then tactic1 tactic ...))
+                         (⊢ null expanded-goal))))
+           (define-for-syntax the-extract (local-expand #'(get-extract) 'expression null))
+           (define-syntax (my-extract s) the-extract)
+           (define runtime (my-extract))
+           (define-syntax name (theorem-definition expanded-goal the-extract #'runtime)))))]))
 
 (module+ test
   (theorem garbage (cons '(lotsa stuff) #f) (emit #'(cons #t #t)))
@@ -477,7 +482,44 @@
                [else (not-applicable (format "Mismatched assumption ~a. Expected ~a, got ~a"
                                              n
                                              G
-                                             ty))])]))))
+                                             ty))])])))
+
+  (define (lemma the-lemma [name 'lemma])
+    (rule (⊢ H G)
+          #:when (and (identifier? the-lemma))
+          (define-values (thm transformer?)
+            (syntax-local-value/immediate the-lemma))
+          (match thm
+            [(theorem-definition ty _ _)
+             #`(let-syntax ([#,name (make-rename-transformer #'#,the-lemma)])
+                 #,(make-assumption-hole (lambda (g) (subgoal g))
+                                         (lambda (good-name)
+                                           (⊢ (cons (hyp good-name ty #f) H)
+                                              G))
+                                         name))]
+            [_ (not-applicable (format "Not a theorem: ~a. Got: ~a" the-lemma thm))])))
+
+  (define (unfold the-lemma [name 'unfolding])
+    (rule (⊢ H G)
+          #:when (and (identifier? the-lemma))
+          (define-values (thm transformer?)
+            (syntax-local-value/immediate the-lemma))
+          (match thm
+            [(theorem-definition ty ext _)
+             #`(let-syntax ([#,name (make-rename-transformer #'axiom)])
+                 #,(make-assumption-hole (lambda (g) (subgoal g))
+                                         (lambda (good-name)
+                                           (define hyp-ty
+                                             (local-expand
+                                              #`(let-syntax ([x (make-rename-transformer #'#,the-lemma)])
+                                                  (≡ #,ty x #,ext))
+                                              'expression
+                                              null))
+                                           (⊢ (cons (hyp good-name hyp-ty #f) H)
+                                              G))
+                                         name))]
+            [_ (not-applicable (format "Not a theorem: ~a. Got: ~a" the-lemma thm))]))))
+
 
 ;
 ;
@@ -1021,34 +1063,53 @@
                 (nat-intro 16)))
   (check-equal? sixteen 16)
   
-  (define plus
-    (run-script #:goal (Π (Nat) (λ (_)
+  (theorem plus
+           (Π (Nat) (λ (_)
                             (Π (Nat) (λ (_)
                                        (Nat)))))
-                (then-l
+           (then-l
                  (Π-intro 0 'n)
                  (nat-equality (Π-intro 0 'm))
                  (nat-equality))
                 (then-l
                  (nat-elim 1)
                  ((assumption 0) nat-intro-add1))
-                (assumption 0)))
+                (assumption 0))
 
   (check-equal? ((plus 2) 5) 7)
 
-  (define another-plus
-    (run-script #:goal (Π (Nat) (λ (_)
-                                  (Π (Nat) (λ (_)
-                                             (Nat)))))
-                (Π-intro 0 'n)
+  (theorem another-plus
+           (Π (Nat) (λ (_)
+                      (Π (Nat) (λ (_)
+                                 (Nat)))))
+           (Π-intro 0 'n)
                 (try nat-equality skip)
                 (Π-intro 0 'm)
                 (try nat-equality skip)
                 (then-l
                  (nat-intro-arith '+ 2)
-                 ((assumption 0) (assumption 1)))))
+                 ((assumption 0) (assumption 1))))
 
-  (check-equal? ((another-plus 2) 5) 7))
+  (check-equal? ((another-plus 2) 5) 7)
+
+  (define yet-another-plus
+    (run-script #:goal (Π (Nat) (λ (j)
+                                  (Π (Nat) (λ (k)
+                                             (Nat)))))
+                (lemma #'plus 'addition)
+                (assumption 0)))
+
+  ;; TODO: requires rewriting with an equality and axiomatization of +, ind-Nat's op-sem
+  #;
+  (theorem plus-is-plus
+           (≡ (Π (Nat) (λ (_)
+                         (Π (Nat) (λ (_)
+                                    (Nat)))))
+              plus
+              another-plus)
+           (unfold #'plus 'plus-unfolding)
+           (unfold #'another-plus)
+           todo))
 
 
 ;                                                    
