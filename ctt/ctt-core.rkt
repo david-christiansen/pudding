@@ -1,6 +1,6 @@
 #lang racket
 
-(require "lcfish.rkt"
+(require "../lcfish.rkt"
          racket/stxparam
          (for-syntax racket/list
                      racket/match
@@ -12,8 +12,27 @@
                      syntax/id-table
                      syntax/kerncase
                      syntax/parse
-                     "stx-utils.rkt")
+                     "../stx-utils.rkt")
          (for-syntax (for-syntax racket/base syntax/parse)))
+
+(provide (for-syntax Uni Eq
+                     hyp
+                     ⊢
+                     at-hyp
+                     rule subgoal not-applicable
+                     make-assumption-hole
+                     constructs?
+                     subst* subst subst1
+                     Π-intro extensionality
+                     equality-equality replace symmetry
+                     assumption
+                     lemma unfold
+                     todo ADMIT)
+         (struct-out Π)
+         (struct-out ≡)
+         (struct-out U)
+         (struct-out Absurd)
+         run-script theorem)
 
 (module+ test (require rackunit))
 
@@ -100,7 +119,6 @@
 
 
 (struct U (level) #:transparent)
-(struct Nat () #:transparent)
 (struct Absurd () #:transparent)
 (struct Listof (element-type) #:transparent)
 (struct Π (domain codomain) #:transparent)
@@ -108,10 +126,6 @@
 
 ;; TODO: Missing types here are Int (replacing Nat), Less, Set, Quotient, Union, Product
 
-(define (ind-Nat target base step)
-  (if (zero? target)
-      base
-      (step (sub1 target) (ind-Nat (sub1 target) base step))))
 
 (define (ind-Listof target base step)
   (cond [(pair? target)
@@ -120,9 +134,6 @@
                (ind-Listof (cdr target) base step))]
         [else
          base]))
-
-(define (monus . args)
-  (max 0 (apply - args)))
 
 (define axiom (void))
 
@@ -149,27 +160,30 @@
 
 
 ;; The arguments should be:
-;;  1. bound-id-table mapping bound identifiers to new syntax objects
+;;  1. free-id-table mapping bound identifiers to new syntax objects
 ;;  2. The syntax object within which to substitute (only supporting some core forms right now)
 (define-for-syntax ((subst* to-subst) stx)
   (kernel-syntax-case stx #f
     [(quote e) #'(quote e)]
     [x (identifier? #'x)
-       (let ([val (bound-id-table-ref to-subst #'x #f)])
+       (let ([val (free-id-table-ref to-subst #'x #f)])
          (if val val #'x))]
     [(#%plain-app e ...)
      #`(#%plain-app #,@(map (subst* to-subst) (syntax-e #'(e ...))))]
     [(#%plain-lambda (arg ...) body ...)
      #`(#%plain-lambda (arg ...) #,@(map (subst* to-subst) (syntax-e #'(body ...))))]
-    [other (error (format "rename-bound: Unsupported syntax: ~a" (syntax->datum #'other)))]))
+    [(#%expression e)
+     #`(#%expression #,((subst* to-subst) #'e))]
+    [other (error (format "subst*: Unsupported syntax: ~a" (syntax->datum #'other)))]))
 
 (define-for-syntax (subst to-subst stx) ((subst* to-subst) stx))
 
 (define-for-syntax (simple-subst from to)
-  (make-immutable-bound-id-table (list (cons from to))))
+  (make-immutable-free-id-table (list (cons from to))))
 
 (define-for-syntax (subst1 from to expr)
   (subst (simple-subst from to) expr))
+  
 
 (define-for-syntax (subst-in-hyp σ h)
   (match-define (hyp name type visible?) h)
@@ -193,6 +207,8 @@
   (kernel-syntax-case #`(#,stx1 #,stx2) #f
     [((quote e1) (quote e2))
      (equal? (syntax->datum #'e1) (syntax->datum #'e2))]
+    [((#%expression e1) (#%expression e2))
+     (α-equiv? ctxt #'e1 #'e2)]
     [(x1 x2)
      (and (identifier? #'x1) (identifier? #'x2))
      (begin
@@ -213,13 +229,14 @@
            [body-list1 (syntax-e #'(body1 ...))]
            [body-list2 (syntax-e #'(body2 ...))])
        (if (and (= (length arglist1) (length arglist2)))
-           (let ([substitution (make-immutable-bound-id-table (map cons arglist2 arglist1))])
+           (let ([substitution (make-immutable-free-id-table (map cons arglist2 arglist1))])
              (andmap (lambda (b1 b2)
                        (α-equiv? (bound-id-set-union ctxt (arglist->set arglist1))
                                  b1 (subst substitution b2)))
                      body-list1
                      body-list2))
-           #f))]))
+           #f))]
+    [_ #f]))
 
 
 (define-for-syntax (constructs? struct-type-name identifier)
@@ -253,7 +270,13 @@
     #:literal-sets (kernel-literals)
     #:attributes (type)
     (pattern (#%plain-app l:id type)
-             #:when (constructs? #'Listof #'l))))
+             #:when (constructs? #'Listof #'l)))
+
+  (define-syntax-class Pi
+    #:literal-sets (kernel-literals)
+    #:attributes (dom var cod)
+    (pattern (#%plain-app pi dom (#%plain-lambda (var) cod))
+             #:when (constructs? #'Π #'pi))))
 
 
 (define-for-syntax (todo hole make-hole)
@@ -525,20 +548,22 @@
             (syntax-local-value/immediate the-lemma))
           (match thm
             [(theorem-definition ty ext _)
-             #`(let-syntax ([#,name (make-rename-transformer #'axiom)])
-                 #,(make-assumption-hole (lambda (g) (subgoal g))
-                                         (lambda (good-name)
-                                           (define hyp-ty
-                                             (local-expand
-                                              #`(let-syntax ([x (make-rename-transformer #'#,the-lemma)])
-                                                  (≡ #,ty x #,ext))
-                                              'expression
-                                              null))
-                                           (⊢ (cons (hyp good-name hyp-ty #f) H)
-                                              G))
-                                         name))]
+             (make-assumption-hole (lambda (g) (subgoal g))
+                                   (lambda (good-name)
+                                     (define hyp-ty
+                                       (local-expand
+                                        #`(≡ #,ty #,the-lemma #,ext)
+                                        'expression
+                                        null))
+                                     (⊢ (cons (hyp good-name hyp-ty #f) H)
+                                        G))
+                                   name)]
             [_ (not-applicable (format "Not a theorem: ~a. Got: ~a" the-lemma thm))])))
 
+  (define ADMIT
+    (rule (⊢ H G)
+          #'(error "Admitted")))
+  
   ;; TODO: test me
   (define (explicit-intro term)
     (rule (⊢ H G)
@@ -746,7 +771,9 @@
                                                                 'expression
                                                                 null)))
                                     #,(subgoal (⊢ H (subst1 #'x right #'body))))
-                 (not-applicable (format "replace: Expected ~a, got ~a" left-body G)))]
+                 (not-applicable (format "replace: Expected ~a, got ~a"
+                                         (syntax->datum left-body)
+                                         (syntax->datum G))))]
             [_ (not-applicable "Malformed rewrite context. Must be a single-arg λ.")])))
 
   (define symmetry
@@ -783,22 +810,7 @@
                 equal-universe))
   (check-true (void? an-eq-eq))
 
-  ;; Test that symmetry and replace do the right thing  
-  (theorem add1-garbage
-           (Π (≡ (Nat) 2 3)
-              (λ (h)
-                (≡ (Nat) (add1 2) (add1 3))))
-           (then-l (Π-intro 0 'x)
-                   ((then-l equality-equality
-                            (nat-equality nat-literal-equality nat-literal-equality))))
-           (then-l (replace 0
-                            (local-expand #'(Nat) 'expression null)
-                            (local-expand #'3 'expression null)
-                            (local-expand #'2 'expression null)
-                            #'(lambda (x) (≡ (Nat) (add1 2) (add1 x))))
-                   (symmetry nat-equality (then nat-equality-add1
-                                                nat-literal-equality))
-                   ((assumption 0)))))
+ )
 
 ;
 ;
@@ -829,7 +841,7 @@
 (define-syntax (assumption-hole stx)
   (define make-next (syntax-property stx 'next-hole))
   (define goal-maker (syntax-property stx 'goal-maker))
-  (define params (syntax-property stx 'params))
+  (define params (leftmost (syntax-property stx 'params)))
   (syntax-case stx ()
     [(_ x y ...)
      (call-with-parameterization
@@ -886,10 +898,10 @@
                   #,(make-assumption-hole (lambda (g) (subgoal g))
                                           (lambda (good-var)
                                             (⊢ (cons (hyp good-var #'a #f) H)
-                                               (let ([renamed-c (subst (make-bound-id-table
+                                               (let ([renamed-c (subst (make-free-id-table
                                                                         (list (cons #'x good-var)))
                                                                        #'c)]
-                                                     [renamed-d (subst (make-bound-id-table
+                                                     [renamed-d (subst (make-free-id-table
                                                                         (list (cons #'y good-var)))
                                                                        #'d)])
                                                  (local-expand #`(≡ u #,renamed-c #,renamed-d)
@@ -915,7 +927,7 @@
                       #,(make-assumption-hole (lambda (g) (subgoal g))
                                               (lambda (the-var)
                                                 (⊢ (cons (hyp the-var #'dom #f) H)
-                                                   (subst (make-bound-id-table
+                                                   (subst (make-free-id-table
                                                            (list (cons #'x the-var)))
                                                           #'cod)))
                                               y)))]
@@ -933,6 +945,28 @@
              (subgoal (⊢ (cons (hyp #'x #'dom #f) H)
                          (local-expand #`(≡ cod #,(subst1 #'y #'x #'body1) #,(subst1 #'z #'x #'body2))
                                        'expression null)))])))
+
+  (define (extensionality (var 'arg))
+    (rule (⊢ H G)
+          (syntax-parse G
+            #:literal-sets (kernel-literals)
+            [eq:Eq
+             #:with pi:Pi #'eq.type
+             #`(side-conditions
+                (let ([#,var (void)])
+                  #,(make-assumption-hole
+                     (lambda (g) (subgoal g))
+                     (lambda (the-var)
+                       (⊢ (cons (hyp the-var #'pi.dom #f)
+                                H)
+                          (local-expand #`(≡ #,(subst1 the-var #'pi.var #'pi.cod)
+                                             (#%plain-app eq.left #,the-var)
+                                             (#%plain-app eq.right #,the-var))
+                                        'expression
+                                        null)))
+                     var))
+                #,(subgoal (⊢ H (local-expand #'(≡ eq.type eq.left eq.left) 'expression null)))
+                #,(subgoal (⊢ H (local-expand #'(≡ eq.type eq.right eq.right) 'expression null))))])))
   )
 
 (module+ test
@@ -958,14 +992,14 @@
                 (then-l (Π-intro 2 'some-uni)
                         (equal-universe (assumption 0)))))
   (check-true (procedure? U1-identity))
-  (check-equal? (U1-identity (Nat)) (Nat))
+  (check-equal? (U1-identity (U 0)) (U 0))
 
   (define U1-refl
     (run-script #:goal (Π (U 2) (λ (ty) (≡ (U 2) ty ty)))
                 (then-l (Π-intro 3 't)
                         (equal-universe (assumption-refl 0)))))
   (check-true (procedure? U1-refl))
-  (check-equal? (U1-refl (Nat)) (void))
+  (check-equal? (U1-refl (U 0)) (void))
 
   (define U1-refl-proof
     (run-script #:goal (≡ (≡ (U 2) (U 1) (U 1)) (void) (void))
@@ -1050,232 +1084,13 @@
   (define absurdities-abound
     (run-script #:goal (Π (Absurd)
                           (λ (oops)
-                            (≡ (Nat) (error oops) (error oops))))
-                (Π-intro 0 'h)
+                            (≡ (U 0) (error oops) (error oops))))
+                (Π-intro 1 'h)
                 (try absurd-equality absurd-member)
                 (assumption-refl 0)))
   (check-true (procedure? absurdities-abound)))
 
 
-;
-;
-;
-;   ;;   ;;               ;;                                     ;;;;
-;   ;;;  ;;               ;;                                     ;;;;
-;   ;;;  ;;               ;;                                       ;;
-;   ;;;; ;;    ;;;;     ;;;;;;;   ;;   ;;    ;; ;;;    ;;;;        ;;       ;;;;
-;   ;; ; ;;   ;;;;;;    ;;;;;;;   ;;   ;;    ;;;;;;;  ;;;;;;       ;;     ;;;;;;;
-;   ;; ; ;;   ;;   ;;     ;;      ;;   ;;    ;;;  ;   ;;   ;;      ;;     ;;   ;
-;   ;; ;;;;        ;;     ;;      ;;   ;;    ;;            ;;      ;;     ;;
-;   ;;  ;;;     ;;;;;     ;;      ;;   ;;    ;;         ;;;;;      ;;     ;;;;
-;   ;;  ;;;    ;;;;;;     ;;      ;;   ;;    ;;        ;;;;;;      ;;      ;;;;;
-;   ;;   ;;   ;;   ;;     ;;      ;;   ;;    ;;       ;;   ;;      ;;        ;;;;
-;   ;;   ;;   ;;   ;;     ;;      ;;   ;;    ;;       ;;   ;;      ;;          ;;
-;   ;;   ;;   ;;   ;;     ;;  ;   ;;  ;;;    ;;       ;;   ;;      ;;     ;;   ;;
-;   ;;   ;;   ;;;;;;;     ;;;;;;  ;;;;;;;    ;;       ;;;;;;;   ;;;;;;;   ;;;;;;;
-;   ;;   ;;    ;;; ;;      ;;;;    ;;; ;;    ;;        ;;; ;;   ;;;;;;;    ;;;;;
-;
-;
-;
-
-(begin-for-syntax
-  ;; TODO: computation and equality rules for ind-Nat, add1, +, *,-
-  
-  (define nat-formation
-    (rule (⊢ H G)
-          #:when (syntax-parse G
-                   [u:Uni #t]
-                   [_     #f])
-          (local-expand #'(Nat) 'expression null)))
-  (define nat-equality
-    (rule (⊢ H G)
-          (syntax-parse G
-            #:literal-sets (kernel-literals)
-            [eq:Eq
-             #:with u:Uni #'eq.type
-             #:with (#%plain-app n1) #'eq.left
-             #:with (#%plain-app n2) #'eq.right
-             #:when (and (constructs? #'Nat #'n1)
-                         (constructs? #'Nat #'n2))
-             #'(void)]
-            [_ (not-applicable)])))
-  (define (nat-intro i)
-    (rule (⊢ H G)
-          (syntax-parse G
-            #:literal-sets (kernel-literals)
-            [(#%plain-app n:id)
-             #:when (and (exact-nonnegative-integer? i)
-                         (constructs? #'Nat #'n))
-             #`'#,i]
-            [_ (not-applicable)])))
-
-  (define nat-literal-equality
-    (rule (⊢ H G)
-          (syntax-parse G
-            #:literal-sets (kernel-literals)
-            [eq:Eq
-             #:with (#%plain-app n) #'eq.type
-             #:with (quote j) #'eq.left
-             #:with (quote k) #'eq.right
-             #:when (and (constructs? #'Nat #'n)
-                         (exact-nonnegative-integer? (syntax-e #'j))
-                         (exact-nonnegative-integer? (syntax-e #'k))
-                         (= (syntax-e #'j) (syntax-e #'k)))
-             #'(void)]
-            [_ (not-applicable)])))
-
-  (define nat-intro-add1
-    (rule (⊢ H G)
-          (syntax-parse G
-            #:literal-sets (kernel-literals)
-            [(#%plain-app n:id)
-             #:when (constructs? #'Nat #'n)
-             #`(add1 #,(subgoal (⊢ H G)))]
-            [_ (not-applicable)])))
-
-  (define nat-equality-add1
-    (rule (⊢ H G)
-          (syntax-parse G
-            #:literal-sets (kernel-literals)
-            #:literals (add1)
-            [eq:Eq
-             #:with (#%plain-app nat) #'eq.type
-             #:with (#%plain-app add1 j) #'eq.left
-             #:with (#%plain-app add1 k) #'eq.right
-             #:when (constructs? #'Nat #'nat)
-             (subgoal (⊢ H (local-expand #'(≡ (Nat) j k) 'expression null)))])))
-
-
-  (define (nat-intro-arith op args)
-    (rule (⊢ H G)
-          #:when (and (exact-positive-integer? args)
-                      (member op '(+ * -)))
-          (syntax-parse G
-            #:literal-sets (kernel-literals)
-            [(#%plain-app nat)
-             #:when (constructs? #'Nat #'nat)
-             (define subgoals
-               (for/list ([i (in-range 0 args)])
-                 (subgoal (⊢ H G))))
-             #`(#,(match op
-                    ['+ #'+]
-                    ['* #'*]
-                    ['- #'monus])
-                #,@subgoals)])))
-
-  (define ind-nat-step-zero
-    (rule (⊢ H G)
-          (syntax-parse G
-            #:literal-sets (kernel-literals)
-            #:literals (ind-Nat)
-            [eq:Eq
-             #:with (#%plain-app ind-Nat n base step) #'eq.left
-             #`(side-conditions
-                #,(subgoal (⊢ H (local-expand #'(≡ eq.type base eq.right) 'expression null)))
-                #,(subgoal (⊢ H (local-expand #'(≡ (Nat) n 0) 'expression null)))
-                (void))])))
-  
-  
-  (define (nat-elim n)
-    (rule (⊢ (and H (at-hyp n Δ (hyp x nat #f) Γ)) G)
-          (syntax-parse nat
-            #:literal-sets (kernel-literals)
-            [(#%plain-app n)
-             #:when (constructs? #'Nat #'n)
-             
-             (define base
-               (subgoal (⊢ H (subst1 x #'0 G))))
-             (define k #'k)
-             (define ih #'ih)
-             (define step
-               #`(λ (#,k #,ih)
-                   #,(make-assumption-hole
-                      (lambda (g) (subgoal g))
-                      (lambda (n ih)
-                        (⊢ (cons (hyp ih (subst1 x n G) #f)
-                                 (cons (hyp n nat #f)
-                                       H))
-                           (subst1 x #`(add1 #,n) G)))
-                      k
-                      ih)))
-             
-             #`(ind-Nat #,x
-                        #,base
-                        #,step)]))))
-
-(module+ test
-  (define my-Nat-type
-    (run-script #:goal (U 0)
-                nat-formation))
-  (check-equal? my-Nat-type (Nat))
-
-  (define nat-is-nat
-    (run-script #:goal (≡ (U 0) (Nat) (Nat))
-                nat-equality))
-  (check-equal? nat-is-nat (void))
-
-  (define sixteen
-    (run-script #:goal (Nat)
-                (nat-intro 16)))
-  (check-equal? sixteen 16)
-  
-  (theorem plus
-           (Π (Nat) (λ (_)
-                            (Π (Nat) (λ (_)
-                                       (Nat)))))
-           (then-l
-                 (Π-intro 0 'n)
-                 (nat-equality (Π-intro 0 'm))
-                 (nat-equality))
-                (then-l
-                 (nat-elim 1)
-                 ((assumption 0) nat-intro-add1))
-                (assumption 0))
-
-  (check-equal? ((plus 2) 5) 7)
-
-  #;
-  (theorem plus-zero
-           (Π (Nat)
-              (λ (n)
-                (≡ (Nat) ((plus n) 0) n)))
-           (then-l (Π-intro 0)
-                   (nat-equality (unfold #'plus)))
-           (then-l (nat-elim 1)
-                   ((replace 0 (Π (Nat) (λ (j) (Π (Nat) (λ (k) (Nat))))) #'plus) todo)))
-  
-  (theorem another-plus
-           (Π (Nat) (λ (_)
-                      (Π (Nat) (λ (_)
-                                 (Nat)))))
-           (Π-intro 0 'n)
-                (try nat-equality skip)
-                (Π-intro 0 'm)
-                (try nat-equality skip)
-                (then-l
-                 (nat-intro-arith '+ 2)
-                 ((assumption 0) (assumption 1))))
-
-  (check-equal? ((another-plus 2) 5) 7)
-
-  (define yet-another-plus
-    (run-script #:goal (Π (Nat) (λ (j)
-                                  (Π (Nat) (λ (k)
-                                             (Nat)))))
-                (lemma #'plus 'addition)
-                (assumption 0)))
-
-  ;; TODO: requires rewriting with an equality and axiomatization of +, ind-Nat's op-sem
-  #;
-  (theorem plus-is-plus
-           (≡ (Π (Nat) (λ (_)
-                         (Π (Nat) (λ (_)
-                                    (Nat)))))
-              plus
-              another-plus)
-           (unfold #'plus 'plus-unfolding)
-           (unfold #'another-plus)
-           todo))
 
 
 ;                                                    
@@ -1301,7 +1116,7 @@
 
 (begin-for-syntax
   (define listof-ctor
-    (syntax-parse (local-expand #'(Listof (Nat)) 'expression null)
+    (syntax-parse (local-expand #'(Listof (U 0)) 'expression null)
       #:literal-sets (kernel-literals)
       [(#%plain-app l _) #'l]))
   
