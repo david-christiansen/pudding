@@ -922,6 +922,17 @@
                 [_ (not-applicable)]))
         (fail (format "Π-intro: not a valid level: ~a" i))))
 
+  (define λ-equality
+    (rule (⊢ H G)
+          (syntax-parse G
+            #:literal-sets (kernel-literals)
+            [eq:Eq
+             #:with (#%plain-app pi dom (#%plain-lambda (x:id) cod)) #'eq.type
+             #:with (#%plain-lambda (y:id) body1) #'eq.left
+             #:with (#%plain-lambda (z:id) body2) #'eq.right
+             (subgoal (⊢ (cons (hyp #'x #'dom #f) H)
+                         (local-expand #`(≡ cod #,(subst1 #'y #'x #'body1) #,(subst1 #'z #'x #'body2))
+                                       'expression null)))])))
   )
 
 (module+ test
@@ -1223,6 +1234,16 @@
 
   (check-equal? ((plus 2) 5) 7)
 
+  #;
+  (theorem plus-zero
+           (Π (Nat)
+              (λ (n)
+                (≡ (Nat) ((plus n) 0) n)))
+           (then-l (Π-intro 0)
+                   (nat-equality (unfold #'plus)))
+           (then-l (nat-elim 1)
+                   ((replace 0 (Π (Nat) (λ (j) (Π (Nat) (λ (k) (Nat))))) #'plus) todo)))
+  
   (theorem another-plus
            (Π (Nat) (λ (_)
                       (Π (Nat) (λ (_)
@@ -1318,15 +1339,50 @@
              #:with (quote ()) #'eq.left
              #:with (quote ()) #'eq.right
              #:with l:Lst #'eq.type
-             #`(side-condidtions #,(subgoal (⊢ H (local-expand #`(≡ (U #,i) l.type l.type)))))])))
+             #`(side-conditions #,(subgoal (⊢ H (local-expand #`(≡ (U #,i) l.type l.type)))))])))
 
   (define list-intro-cons
     (rule (⊢ H G)
           (syntax-parse G
             [l:Lst
              #'(cons #,(subgoal (⊢ H #'l.type)) #,(subgoal (⊢ H #'l)))])))
-  
-  )
+
+  (define list-cons-equality
+    (rule (⊢ H G)
+          (syntax-parse G
+            #:literal-sets (kernel-literals)
+            #:literals (cons)
+            [eq:Eq
+             #:with lst:Lst #'eq.type
+             #:with (#%plain-app cons x xs) #'eq.left
+             #:with (#%plain-app cons y ys) #'eq.right
+             #`(side-conditions
+                #,(subgoal (⊢ H (local-expand #'(≡ lst.type x y))))
+                #,(subgoal (⊢ H (local-expand #'(≡ lst xs ys))))
+                (void))])))
+
+  (define (list-elim n)
+    (rule (⊢ (and H (at-hyp n Δ (hyp xs l #f) Γ)) G)
+          (syntax-parse l
+            #:literal-sets (kernel-literals)
+            [lst:Lst
+             (define base
+               (subgoal (⊢ H (subst1 xs #''() G))))
+             (define y #'y)
+             (define ys #'ys)
+             (define ih #'ih)
+             (define step
+               #`(λ (#,y #,ys #,ih)
+                   #,(make-assumption-hole
+                      (lambda (g) (subgoal g))
+                      (lambda (y ys ih)
+                        (⊢ (cons (hyp ih (subst1 xs ys G) #f)
+                                 (cons (hyp ys #'lst #f)
+                                       (cons (hyp y #'lst.type #f)
+                                             H)))
+                           (subst1 xs (local-expand #`(cons #,y #,ys) 'expression null) G)))
+                      y ys ih)))
+             #`(ind-Listof #,xs #,base #,step)]))))
 
 ;                                                              
 ;                                                              
