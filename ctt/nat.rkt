@@ -2,7 +2,7 @@
 
 (require "ctt-core.rkt"
          (except-in "../lcfish.rkt" run-script)
-         (for-syntax racket/match syntax/parse))
+         (for-syntax racket/match syntax/parse racket/promise))
 
 (module+ test (require rackunit))
 
@@ -220,6 +220,11 @@
                 (lemma #'plus 'addition)
                 (assumption 0)))
 
+  (define-for-syntax (repeat t)
+    (try (then t
+               (delay (repeat t)))
+         skip))
+  
   ;; TODO: requires rewriting with an equality and axiomatization of +, ind-Nat's op-sem
   (theorem plus-is-plus
            (≡ (Π (Nat) (λ (_)
@@ -245,5 +250,7 @@
                                                                                        (Nat)))
                                                                             (p 0) (another-plus 0)))
                                                                 'expression null)))
-                                        ((assumption 0) todo todo))
+                                        ((assumption 0)
+                                         (repeat (try (Π-in-uni) nat-equality))
+                                         todo))
                                        todo))))))

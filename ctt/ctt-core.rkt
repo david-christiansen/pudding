@@ -23,7 +23,7 @@
                      make-assumption-hole
                      constructs?
                      subst* subst subst1
-                     Π-intro extensionality
+                     Π-intro extensionality Π-in-uni
                      equality-equality replace symmetry
                      assumption
                      lemma unfold
@@ -548,16 +548,17 @@
             (syntax-local-value/immediate the-lemma))
           (match thm
             [(theorem-definition ty ext _)
-             (make-assumption-hole (lambda (g) (subgoal g))
-                                   (lambda (good-name)
-                                     (define hyp-ty
-                                       (local-expand
-                                        #`(≡ #,ty #,the-lemma #,ext)
-                                        'expression
-                                        null))
-                                     (⊢ (cons (hyp good-name hyp-ty #f) H)
-                                        G))
-                                   name)]
+             #`(let ([#,name (void)])
+                 #,(make-assumption-hole (lambda (g) (subgoal g))
+                                         (lambda (good-name)
+                                           (define hyp-ty
+                                             (local-expand
+                                              #`(≡ #,ty #,the-lemma #,ext)
+                                              'expression
+                                              null))
+                                           (⊢ (cons (hyp good-name hyp-ty #f) H)
+                                              G))
+                                         name))]
             [_ (not-applicable (format "Not a theorem: ~a. Got: ~a" the-lemma thm))])))
 
   (define ADMIT
