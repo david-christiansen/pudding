@@ -1,6 +1,7 @@
 #lang racket
 
 (require "../lcfish.rkt"
+         "../lift-tooltips.rkt"
          racket/stxparam
          (for-syntax racket/list
                      racket/match
@@ -36,6 +37,11 @@
 
 (module+ test (require rackunit))
 
+(let-syntax ([tt (lambda (stx) (ensure-lifted-tooltips) #'(void))])
+  (begin (tt)))
+(module+ test
+  (let-syntax ([tt (lambda (stx) (ensure-lifted-tooltips) #'(void))])
+  (begin (tt))))
 
 (begin-for-syntax
   (struct hyp (name type visible?) #:transparent)
@@ -76,9 +82,15 @@
      (define where (current-tactic-location))
      (match (get-goal hole-stx)
        [(? ⊢? g)
-        (define goal (with-output-to-string
-                         (lambda ()
-                           (dump-goal g))))
+        (define goal
+          (with-output-to-string
+           (lambda ()
+             (dump-goal g))))
+        (define message
+          (format "~a:\n~a"
+                  (syntax->datum where)
+                  goal))
+        (save-tooltip message where)
         (log-message online-check-syntax-logger
                      'info
                      goal
@@ -88,9 +100,7 @@
                                                     (syntax-position where)
                                                     (+ (syntax-position where)
                                                        (syntax-span where))
-                                                    (format "~a:\n~a"
-                                                            (syntax->datum where)
-                                                            goal)))))]
+                                                    message))))]
        [_ (void)]))))
 
 
@@ -322,6 +332,7 @@
 
 
 (define-syntax (run-script stx)
+  (ensure-lifted-tooltips)
   (syntax-parse stx
     [(run-script #:goal g tactic ...)
      #`(syntax-parameterize ([tactic-debug-hook #,dump-goal])

@@ -1,12 +1,13 @@
 #lang racket
 (require (for-syntax racket/generator racket/contract racket/sequence racket/promise racket/match
-                     racket/control
+                     
                      (for-syntax racket/base))
          racket/stxparam)
 
 (provide
  (for-syntax skip fail try then then-l emit tactic/c hole-with-tactic log
-             current-tactic-location no-more-tactics-hook tactic-info-hook)
+             current-tactic-location no-more-tactics-hook tactic-info-hook
+             )
  tactic-debug? tactic-debug-hook
  run-script)
 
@@ -27,7 +28,10 @@
      (lambda (hole-stx)
        (raise-syntax-error 'no-more-tactics "No more tactics" (current-tactic-location))))))
 
+
+
 (begin-for-syntax
+  
   (define current-tactic-location (make-parameter #f))
   (define current-tactic-handler (make-parameter (lambda (e) (raise e))))
   
