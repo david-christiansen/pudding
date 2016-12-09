@@ -739,7 +739,7 @@
              #:with (~and todo eq2:Eq) #'eq.type
              (subgoal (⊢ H #'eq2))]
             [_ (not-applicable)])))
-
+  
   (define (assumption-refl n)
     (rule (⊢ H G)
           (define assumptions (length H))
@@ -805,8 +805,8 @@
           (syntax-parse G
             [eq:Eq
              #`(side-conditions
-                #,(subgoal (⊢ H (local-expand #`(≡ eq.type eq.left #,middle))))
-                #,(subgoal (⊢ H (local-expand #`(≡ eq.type #,middle eq.right))))
+                #,(subgoal (⊢ H (local-expand #`(≡ eq.type eq.left #,middle) 'expression null)))
+                #,(subgoal (⊢ H (local-expand #`(≡ eq.type #,middle eq.right) 'expression null)))
                 (void))]
             [_ (not-applicable)]))))
 
@@ -1153,7 +1153,7 @@
              #:with u:Uni #'eq.type
              #:with l1:Lst #'eq.left
              #:with l2:Lst #'eq.right
-             (subgoal (local-expand #`(≡ u l1.type l2.type)))])))
+             (subgoal (local-expand #`(≡ u l1.type l2.type) 'expression null))])))
 
   (define (list-intro-nil i)
     (rule (⊢ H G)
@@ -1161,7 +1161,7 @@
             #:literal-sets (kernel-literals)
             [l:Lst
              #`(side-conditions
-                #,(subgoal (⊢ H (local-expand #`(≡ (U #,i) l.type l.type))))
+                #,(subgoal (⊢ H (local-expand #`(≡ (U #,i) l.type l.type) 'expression null)))
                 null)])))
 
   (define (list-nil-equality i)
@@ -1172,7 +1172,7 @@
              #:with (quote ()) #'eq.left
              #:with (quote ()) #'eq.right
              #:with l:Lst #'eq.type
-             #`(side-conditions #,(subgoal (⊢ H (local-expand #`(≡ (U #,i) l.type l.type)))))])))
+             #`(side-conditions #,(subgoal (⊢ H (local-expand #`(≡ (U #,i) l.type l.type) 'expression null))))])))
 
   (define list-intro-cons
     (rule (⊢ H G)
@@ -1190,8 +1190,8 @@
              #:with (#%plain-app cons x xs) #'eq.left
              #:with (#%plain-app cons y ys) #'eq.right
              #`(side-conditions
-                #,(subgoal (⊢ H (local-expand #'(≡ lst.type x y))))
-                #,(subgoal (⊢ H (local-expand #'(≡ lst xs ys))))
+                #,(subgoal (⊢ H (local-expand #'(≡ lst.type x y) 'expression null)))
+                #,(subgoal (⊢ H (local-expand #'(≡ lst xs ys) 'expression null)))
                 (void))])))
 
   (define (list-elim n)
