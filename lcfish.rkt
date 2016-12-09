@@ -7,6 +7,7 @@
 (provide
  (for-syntax skip fail try then then-l emit tactic/c hole-with-tactic log
              current-tactic-location no-more-tactics-hook tactic-info-hook
+             current-tactic-handler
              )
  tactic-debug? tactic-debug-hook
  run-script)
@@ -33,7 +34,11 @@
 (begin-for-syntax
   
   (define current-tactic-location (make-parameter #f))
-  (define current-tactic-handler (make-parameter (lambda (e) (raise e))))
+  (define current-tactic-handler
+    (make-parameter (lambda (e)
+                      ((error-display-handler) (exn-message e) e)
+                      #`(raise #,e)
+                      #;(raise e))))
   
   ;; Keys are used to look up the tactic for a hole. They are used
   ;; only as unique identifiers --- the fact that the struct is not

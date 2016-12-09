@@ -2,6 +2,7 @@
 
 (require "../lcfish.rkt"
          "../lift-tooltips.rkt"
+         "../lift-errors.rkt"
          racket/stxparam
          (for-syntax racket/list
                      racket/match
@@ -37,10 +38,10 @@
 
 (module+ test (require rackunit))
 
-(let-syntax ([tt (lambda (stx) (ensure-lifted-tooltips) #'(void))])
+(let-syntax ([tt (lambda (stx) (ensure-lifted-tooltips) (ensure-error-reports) #'(void))])
   (begin (tt)))
 (module+ test
-  (let-syntax ([tt (lambda (stx) (ensure-lifted-tooltips) #'(void))])
+  (let-syntax ([tt (lambda (stx) (ensure-lifted-tooltips) (ensure-error-reports) #'(void))])
   (begin (tt))))
 
 (begin-for-syntax
@@ -72,11 +73,26 @@
                                 (lambda ()
                                   (printf "Unsolved goal:\n")
                                   (dump-goal hole-stx))))
+                          (define exn
+                            (make-exn:fail:syntax message
+                                                  (current-continuation-marks)
+                                                  (list (current-tactic-location))))
+                          (save-error exn)
+                          ((error-display-handler) message exn)
+                          #;
                           (raise-syntax-error 'run-script
                                               message
                                               (current-tactic-location))))
-
-  (define-logger online-check-syntax)
+  (current-tactic-handler (lambda (exn)
+                            (save-error exn)
+                            (when (exn:srclocs? exn)
+                              (define locs
+                                ((exn:srclocs-accessor exn) exn))
+                              (for ([l locs])
+                                (save-tooltip (exn-message exn) l)))
+                            ((error-display-handler) (exn-message exn) exn)
+                            #`(raise #,exn)))
+  
   (tactic-info-hook
    (lambda (hole-stx)
      (define where (current-tactic-location))
@@ -90,17 +106,7 @@
           (format "~a:\n~a"
                   (syntax->datum where)
                   goal))
-        (save-tooltip message where)
-        (log-message online-check-syntax-logger
-                     'info
-                     goal
-                     (list (syntax-property #'(void)
-                                            'mouse-over-tooltips
-                                            (vector where
-                                                    (syntax-position where)
-                                                    (+ (syntax-position where)
-                                                       (syntax-span where))
-                                                    message))))]
+        (save-tooltip message where)]
        [_ (void)]))))
 
 

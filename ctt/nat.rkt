@@ -1,10 +1,18 @@
 #lang racket
 
 (require "ctt-core.rkt"
+         "../lift-tooltips.rkt"
+         "../lift-errors.rkt"
          (except-in "../lcfish.rkt" run-script)
          (for-syntax racket/match syntax/parse racket/promise))
 
 (module+ test (require rackunit))
+
+(let-syntax ([tt (lambda (stx) (ensure-lifted-tooltips) (ensure-error-reports) #'(void))])
+  (begin (tt)))
+(module+ test
+  (let-syntax ([tt (lambda (stx) (ensure-lifted-tooltips) (ensure-error-reports) #'(void))])
+  (begin (tt))))
 
 (struct Nat () #:transparent)
 
@@ -176,8 +184,8 @@
   
   (theorem plus
            (Π (Nat) (λ (_)
-                            (Π (Nat) (λ (_)
-                                       (Nat)))))
+                      (Π (Nat) (λ (_)
+                                 (Nat)))))
            (then-l
                  (Π-intro 0 'n)
                  (nat-equality (Π-intro 0 'm))

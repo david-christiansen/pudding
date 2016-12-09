@@ -1,5 +1,6 @@
 #lang racket
 
+(require (for-syntax syntax/srcloc))
 (provide (for-syntax save-tooltip ensure-lifted-tooltips))
 
 (begin-for-syntax
@@ -9,16 +10,24 @@
     (when (and (syntax-transforming-with-lifts?) (not (unbox lifted-tooltips?)))
       (syntax-local-lift-module-end-declaration #'(tooltips))
       (set-box! lifted-tooltips? #t)))
+
+  (define-logger online-check-syntax)
+  
   (define (save-tooltip msg where)
     (ensure-lifted-tooltips)
     (define tooltip
       (vector where
-              (syntax-position where)
-              (+ (syntax-position where)
-                 (syntax-span where))
+              (source-location-position where)
+              (+ (source-location-position where)
+                 (source-location-span where))
               msg))
+    (log-message online-check-syntax-logger
+                 'info
+                 msg
+                 (list (syntax-property #'(void) 'mouse-over-tooltips tooltip)))
     (set-box! lifted-tooltips
               (cons tooltip (unbox lifted-tooltips)))))
+
 (define-syntax (tooltips stx)
   (syntax-property #'(void)
                    'mouse-over-tooltips
