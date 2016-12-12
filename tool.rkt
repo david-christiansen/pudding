@@ -4,12 +4,15 @@
 (provide tool@)
 
 
+
 (define-runtime-path expansion-handler.rkt "expansion-handler.rkt")
 
 (define tool@
   (unit
     (import drracket:tool^)
     (export drracket:tool-exports^)
+
+    (struct goal-info (start end meta))
 
     (define echoer (box #f))
     (define (echo msg)
@@ -23,15 +26,25 @@
       (when f
         (f gs)))
 
+    (define editor-mover (box #f))
+    (define (editor-move-to pos [end 'same])
+      (define f (unbox editor-mover))
+      (when f
+        (f pos end)))
+
     (define hole-info #f)
     (define (update-hole-info! [info #f])
-      (set! hole-info (and info (make-interval-map info))))
+      (set! hole-info (and info (make-interval-map info)))
+      (if hole-info
+          (set-goal-list (for/list ([(k v) (in-dict hole-info)])
+                           (list k v)))
+          (set-goal-list null)))
 
     (define hole-finding-text-mixin
       (mixin (racket:text<%>) ()
         (super-new)
 
-        (inherit get-start-position)
+        (inherit get-start-position set-position get-active-canvas scroll-to-position)
 
         (define (update-pos)
           (define pos (get-start-position))
@@ -47,7 +60,15 @@
           (echo (format "Goals: ~a" gs)))
 
         (define/augment (after-set-position)
-          (update-pos))))
+          (update-pos))
+
+        (set-box! editor-mover
+                  (lambda (pos [end 'same])
+                    (queue-callback (thunk (set-position pos end)))
+                    (queue-callback (thunk (scroll-to-position pos #f end)))
+                    (define canvas (get-active-canvas))
+                    (when canvas
+                      (send canvas focus))))))
 
     (define extra-panel-mixin
       (mixin (drracket:unit:frame<%>) ()
@@ -58,14 +79,23 @@
           (define new-panel
             (new panel:vertical-dragable% [parent super-res]))
           (define p
-            (new panel:horizontal-dragable% [parent new-panel]))
+            (new panel:horizontal-dragable% [parent new-panel] [style '(deleted)]))
           (define msg
             (new list-box%
                  [parent p]
                  [label #f]
                  [choices (list "Hole 1" "Hole 2" "...")]
                  [style '(single)]
-                 [columns '("Where")]))
+                 [columns '("Where")]
+                 [callback (lambda (list-box evt)
+                             (when (eqv? (send evt get-event-type) 'list-box)
+                               (match (send list-box get-selections)
+                                 [(list) (void)]
+                                 [(list n)
+                                  (match-define (goal-info start end meta)
+                                    (send list-box get-data n))
+                                  (editor-move-to start end)]
+                                 [_ (void)])))]))
           (define p2
             (new group-box-panel%
                  [parent p]
@@ -73,16 +103,31 @@
           (define echo-area
             (new text-field%
                  [parent p2]
-                 [label "Echo area"]))
+                 [label #f]
+                 [style '(multiple)]))
 
           (set-box! echoer
                     (lambda (new-msg)
-                      (send echo-area set-value new-msg)))
+                      (queue-callback (thunk (send echo-area set-value new-msg)))))
 
           (set-box! goal-setter
                     (lambda (gs)
-                      (void)
-                      ))
+                      (send msg clear)
+                      (if (null? gs)
+                          (send new-panel change-children (lambda (subareas)
+                                                            (for/list ([area (in-list subareas)]
+                                                                       #:when (not (eq? area p)))
+                                                              area)))
+                          (begin
+                            (send new-panel change-children
+                                  (lambda (subareas)
+                                    (append
+                                     (for/list ([area (in-list subareas)]
+                                                #:when (not (eq? area p)))
+                                       area)
+                                     (list p))))
+                            (for ([g gs])
+                              (send msg append (format "~a" g) (goal-info (caar g) (cdar g) (cdr g))))))))
           new-panel)))
 
     (define (phase1) (void))
@@ -91,10 +136,10 @@
     (drracket:get/extend:extend-definitions-text hole-finding-text-mixin)
     (drracket:get/extend:extend-unit-frame extra-panel-mixin)
     (drracket:module-language-tools:add-online-expansion-handler
-         expansion-handler.rkt
-         'handle-expansion
-         (λ (text info)
-           (send text set-goals info)))))
+     expansion-handler.rkt
+     'handle-expansion
+     (λ (text info)
+       (send text set-goals info)))))
 
 
 
