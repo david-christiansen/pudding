@@ -10,7 +10,7 @@
     (import drracket:tool^)
     (export drracket:tool-exports^)
 
-    (struct goal-info (start end meta))
+    (struct goal-info (start end meta index) #:transparent)
 
     (define echoer (box #f))
     (define (echo msg)
@@ -23,17 +23,19 @@
       (mixin (racket:text<%> drracket:unit:definitions-text<%>) ()
         (super-new)
 
-        (inherit get-start-position set-position get-active-canvas scroll-to-position get-tab)
+        (inherit get-start-position set-position get-active-canvas scroll-to-position get-tab
+                 position-line)
 
         (define (update-pos)
           (define pos (get-start-position))
           (define tab-info (hash-ref hole-info (get-tab) #f))
-          (define h (and hole-info
-                         tab-info
-                         (interval-map-ref tab-info pos #f)))
-          (if h
-              (echo (format "Pos: ~a, hole: ~a" pos h))
-              (echo (format "Pos: ~a" pos))))
+          (match (and hole-info
+                      tab-info
+                      (interval-map-ref tab-info pos #f))
+            [#f (send (send (get-tab) get-frame) set-current-goal #f)]
+            [(goal-info _ _ _ i)
+             (send (send (get-tab) get-frame) set-current-goal i)
+             (echo (format "Pos: ~a Hole: ~a" pos i))]))
 
         (define hole-info (make-hasheq))
         (define (set-hole-info! [info #f])
@@ -51,10 +53,14 @@
             [info
              (send frame set-goal-list
                    (for/list ([(k v) (in-dict info)])
-                     (list k v)))]))
+                     v))]))
 
         (define/public (set-goals gs)
-          (set-hole-info! gs))
+          (set-hole-info!
+           (for/list ([g gs]
+                      [i (in-range 10000)])
+             (cons (cons (caar g) (cdar g))
+                   (goal-info (caar g) (cdar g) (cdr g) i)))))
 
         (define/augment (after-set-position)
           (update-pos))))
@@ -71,6 +77,11 @@
         (define/public (set-goal-list gs)
           (for ([l (unbox goal-list-listeners)])
             (send l on-new-goal-list gs)))
+
+        (define current-goal-listeners (box null))
+        (define/public (set-current-goal i)
+          (for ([l (unbox current-goal-listeners)])
+            (send l on-new-current-goal i)))
 
         (define/override (get-definitions/interactions-panel-parent)
           (define super-res (super get-definitions/interactions-panel-parent))
@@ -94,12 +105,21 @@
           (define hole-list-box
             (new (class list-box%
                    (super-new)
-                   (inherit append clear)
+                   (inherit append clear get-selection select set-selection)
                    (define/public (on-new-goal-list gs)
                      (clear)
+                     (define defns (get-definitions-text))
                      (for ([g gs])
+                       (define line (send defns position-line (goal-info-start g)))
+                       (define col (- (goal-info-start g) (send defns line-start-position line)))
                        (send hole-list-box append
-                             (format "~a" g) (goal-info (caar g) (cdar g) (cdr g))))))
+                             (format "~a:~a: ~a" (add1 line) (add1 col) g)
+                             g)))
+                   (define/public (on-new-current-goal i)
+                     (if i
+                         (set-selection i)
+                         (let ([sel (get-selection)])
+                           (when sel (select sel #f))))))
                  [parent hole-holder]
                  [label #f]
                  [choices (list "Hole 1" "Hole 2" "...")]
@@ -110,7 +130,7 @@
                                (match (send list-box get-selections)
                                  [(list) (void)]
                                  [(list n)
-                                  (match-define (goal-info start end meta)
+                                  (match-define (goal-info start end meta _)
                                     (send list-box get-data n))
                                   (define defns (get-definitions-text))
                                   (queue-callback (thunk (send* defns
@@ -131,7 +151,7 @@
                  [style '(multiple)]))
 
           (set-box! goal-list-listeners (list hole-list-box new-panel))
-
+          (set-box! current-goal-listeners (list hole-list-box))
           (set-box! echoer
                     (lambda (new-msg)
                       (queue-callback (thunk (send echo-area set-value new-msg)))))

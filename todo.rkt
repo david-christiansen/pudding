@@ -4,6 +4,7 @@
   (syntax-property (syntax/loc stx (error 'todo)) 'goal (syntax->datum stx)))
 
 
-(define x (todo 'hey))
+(define x
+  (todo 'hey))
 
 (define y (todo 'you))
