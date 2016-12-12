@@ -113,7 +113,7 @@
                        (define line (send defns position-line (goal-info-start g)))
                        (define col (- (goal-info-start g) (send defns line-start-position line)))
                        (send hole-list-box append
-                             (format "~a:~a: ~a" (add1 line) (add1 col) g)
+                             (format "~a:~a: ~a" (add1 line) (add1 col) (goal-info-meta g))
                              g)))
                    (define/public (on-new-current-goal i)
                      (if i
@@ -122,7 +122,7 @@
                            (when sel (select sel #f))))))
                  [parent hole-holder]
                  [label #f]
-                 [choices (list "Hole 1" "Hole 2" "...")]
+                 [choices (list)]
                  [style '(single)]
                  [columns '("Where")]
                  [callback (lambda (list-box evt)
