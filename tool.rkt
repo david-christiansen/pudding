@@ -12,12 +12,6 @@
 
     (struct goal-info (start end meta index) #:transparent)
 
-    (define echoer (box #f))
-    (define (echo msg)
-      (define f (unbox echoer))
-      (when f
-        (f msg)))
-
 
     (define hole-finding-text-mixin
       (mixin (racket:text<%> drracket:unit:definitions-text<%>) ()
@@ -33,9 +27,8 @@
                       tab-info
                       (interval-map-ref tab-info pos #f))
             [#f (send (send (get-tab) get-frame) set-current-goal #f)]
-            [(goal-info _ _ _ i)
-             (send (send (get-tab) get-frame) set-current-goal i)
-             (echo (format "Pos: ~a Hole: ~a" pos i))]))
+            [(and g (goal-info _ _ _ i))
+             (send (send (get-tab) get-frame) set-current-goal g)]))
 
         (define hole-info (make-hasheq))
         (define (set-hole-info! [info #f])
@@ -79,9 +72,9 @@
             (send l on-new-goal-list gs)))
 
         (define current-goal-listeners (box null))
-        (define/public (set-current-goal i)
+        (define/public (set-current-goal g)
           (for ([l (unbox current-goal-listeners)])
-            (send l on-new-current-goal i)))
+            (send l on-new-current-goal g)))
 
         (define/override (get-definitions/interactions-panel-parent)
           (define super-res (super get-definitions/interactions-panel-parent))
@@ -115,9 +108,9 @@
                        (send hole-list-box append
                              (format "~a:~a: ~a" (add1 line) (add1 col) (goal-info-meta g))
                              g)))
-                   (define/public (on-new-current-goal i)
-                     (if i
-                         (set-selection i)
+                   (define/public (on-new-current-goal g)
+                     (if g
+                         (set-selection (goal-info-index g))
                          (let ([sel (get-selection)])
                            (when sel (select sel #f))))))
                  [parent hole-holder]
@@ -144,17 +137,21 @@
             (new group-box-panel%
                  [parent hole-holder]
                  [label "Details"]))
-          (define echo-area
-            (new text-field%
+          (define details
+            (new (class text-field%
+                   (super-new)
+                   (inherit set-value)
+                   (define/public (on-new-current-goal g)
+                     (if g
+                         (set-value (format "Goal ~a:\n\t~a" (goal-info-index g) (goal-info-meta g)))
+                         (set-value ""))))
                  [parent p2]
                  [label #f]
                  [style '(multiple)]))
 
           (set-box! goal-list-listeners (list hole-list-box new-panel))
-          (set-box! current-goal-listeners (list hole-list-box))
-          (set-box! echoer
-                    (lambda (new-msg)
-                      (queue-callback (thunk (send echo-area set-value new-msg)))))
+          (set-box! current-goal-listeners (list hole-list-box details))
+
           new-panel)
 
         (super-new)))
