@@ -747,7 +747,7 @@
              #:with (~and todo eq2:Eq) #'eq.type
              (subgoal (⊢ H #'eq2))]
             [_ (not-applicable)])))
-
+  
   (define (assumption-refl n)
     (rule (⊢ H G)
           (define assumptions (length H))
