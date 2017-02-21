@@ -42,7 +42,8 @@
 
 (define foo (make-logic 'foo))
 
-(define/seal foo (bless x) x)
+(define/seal foo (bless x)
+  (if (eq? x 5) (error "nope") x))
 
 (define (fake-seal x)
   (reset (bless (shift k (k x)))))
