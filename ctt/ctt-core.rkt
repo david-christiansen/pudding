@@ -3,10 +3,12 @@
 (require "../lcfish.rkt"
          "../lift-tooltips.rkt"
          "../lift-errors.rkt"
+         (for-syntax "../goal.rkt")
          racket/stxparam
          (for-syntax racket/list
                      racket/match
                      racket/port
+                     racket/contract
                      racket/set
                      racket/stxparam
                      racket/syntax
@@ -45,8 +47,24 @@
   (begin (tt))))
 
 (begin-for-syntax
-  (struct hyp (name type visible?) #:transparent)
-  (struct ⊢ (hyps goal) #:transparent)
+  (struct hyp (name type visible?)
+    #:transparent
+    #:methods gen:hypothesis
+    [(define (hypothesis-id h) (hyp-name h))
+     (define (hypothesis-shows h) (hyp-type h))
+     (define (hypothesis->string h)
+       (format (if (hyp-visible? h)
+                   "~a : ~a"
+                   "[~a : ~a]")
+               (syntax->datum (hyp-name h))
+               (syntax->datum (hyp-type h))))])
+  (struct ⊢ (hyps goal)
+    #:transparent
+    #:methods gen:proof-goal
+    [(define (hypotheses g)
+       (⊢-hyps g))
+     (define (goal g)
+       (⊢-goal g))])
 
   (define (get-goal stx)
     (leftmost (syntax-property stx 'goal)))
@@ -54,18 +72,11 @@
   (define (set-goal stx goal)
     (syntax-property stx 'goal goal))
 
-  (define (dump-goal stx)
-    (match-define (⊢ H G) (if (syntax? stx)
-                              (get-goal stx)
-                              stx))
-    (for/list ([h (reverse H)]
-               [i (in-range (length H) 0 -1)])
-      (match h
-        [(hyp x t visible?)
-         (if visible?
-             (printf "~a. [~a : ~a]\n" (sub1 i) (syntax-e x) (syntax->datum (unexpand t)))
-             (printf "~a. ~a : ~a\n" (sub1 i) (syntax-e x) (syntax->datum (unexpand t))))]))
-    (printf "⊢ ~a\n\n" (syntax->datum (unexpand G))))
+  (define/contract (dump-goal g)
+    (-> (or/c syntax? ⊢?) string?)
+    (if (syntax? g)
+        (proof-goal->string (get-goal g))
+        (proof-goal->string g)))
 
   (no-more-tactics-hook (lambda (hole-stx)
                           (define message
@@ -219,7 +230,7 @@
     (for/fold ([the-set (immutable-bound-id-set)])
               ([id xs])
       (bound-id-set-add the-set id)))
-  
+
   (kernel-syntax-case #`(#,stx1 #,stx2) #f
     [((quote e1) (quote e2))
      (equal? (syntax->datum #'e1) (syntax->datum #'e2))]
@@ -296,7 +307,7 @@
 
 
 (define-for-syntax (todo hole make-hole)
-  ((fail (with-output-to-string (lambda () (dump-goal (get-goal hole)))))
+  ((fail (dump-goal (get-goal hole)))
    hole make-hole))
 
 ;; For showing error messages etc
@@ -455,9 +466,7 @@
                                        #'(raise (make-exn:fail:this-rule
                                                  (string-append
                                                   "Not applicable at goal:\n"
-                                                  (with-output-to-string
-                                                      (lambda ()
-                                                        (dump-goal (get-goal hole)))))
+                                                  (dump-goal (get-goal hole)))
                                                  (current-continuation-marks)))]))])
              (with-handlers ([exn:fail:this-rule?
                               (lambda (e)
@@ -465,8 +474,7 @@
                (match (get-goal hole)
                  [goal-pat #:when condition result ...]
                  [other ((fail (string-append "Wrong goal:\n"
-                                              (with-output-to-string
-                                                  (lambda () (dump-goal other)))))
+                                              (dump-goal other)))
                          hole make-hole)])))))]
       [(_ goal-pat result ...+)
        (syntax/loc stx
@@ -478,7 +486,7 @@
       [g #:when (pred g)
          ((tactic-info-hook) hole)
          (tac hole make-hole)]
-      [g ((fail (string-append "Wrong goal:\n" (with-output-to-string (lambda () (dump-goal g)))))
+      [g ((fail (string-append "Wrong goal:\n" (dump-goal g)))
           hole make-hole)]))
 
   (define emit-void (emit #'(void))))
