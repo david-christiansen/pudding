@@ -42,8 +42,13 @@
 
 (define foo (make-logic 'foo))
 
-(define/seal foo (bless x)
-  (if (eq? x 5) (error "nope") x))
+(define/seal foo (bless f x)
+  (if (eq? x 5) (error "nope") (f x)))
+
+(define wurble (box #f))
 
 (define (fake-seal x)
-  (reset (bless (shift k (k x)))))
+  (prompt (bless (lambda (z) (control k (begin (set-box! wurble k)
+                                               (k z))))
+                 0)))
+
