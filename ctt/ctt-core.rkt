@@ -87,26 +87,26 @@
                           (define exn
                             (make-exn:fail:syntax message
                                                   (current-continuation-marks)
-                                                  (list (current-tactic-location))))
+                                                  (list (hole-loc hole-stx))))
                           (save-error exn)
                           ((error-display-handler) message exn)
                           #;
                           (raise-syntax-error 'run-script
                                               message
-                                              (current-tactic-location))))
-  (current-tactic-handler (lambda (exn)
-                            (save-error exn)
-                            (when (exn:srclocs? exn)
-                              (define locs
-                                ((exn:srclocs-accessor exn) exn))
-                              (for ([l locs])
-                                (save-tooltip (exn-message exn) l)))
-                            ((error-display-handler) (exn-message exn) exn)
-                            #`(raise #,exn)))
+                                              (hole-loc hole-stx))))
+  (basic-handler (lambda (exn)
+                   (save-error exn)
+                   (when (exn:srclocs? exn)
+                     (define locs
+                       ((exn:srclocs-accessor exn) exn))
+                     (for ([l locs])
+                       (save-tooltip (exn-message exn) l)))
+                   ((error-display-handler) (exn-message exn) exn)
+                   #`(raise #,exn)))
   
   (tactic-info-hook
    (lambda (hole-stx)
-     (define where (current-tactic-location))
+     (define where (hole-loc hole-stx))
      (match (get-goal hole-stx)
        [(? ⊢? g)
         (define goal
@@ -354,9 +354,10 @@
     [(run-script #:goal g tactic ...)
      #`(syntax-parameterize ([tactic-debug-hook #,dump-goal])
          (define-syntax (go s)
-           (parameterize ([current-tactic-location #'#,stx])
-             (set-goal (hole-with-tactic (then tactic ...))
-                       (⊢ null (local-expand #'g 'expression null)))))
+           (set-tactic-location
+            (set-goal (hole-with-tactic basic-proof-state (then tactic ...))
+                      (⊢ null (local-expand #'g 'expression null)))
+            #'#,stx))
          (go))]))
 
 (begin-for-syntax
@@ -375,9 +376,10 @@
          (begin
            (define-for-syntax expanded-goal (local-expand #'goal 'expression null))    
            (define-syntax (get-extract s)
-             (parameterize ([current-tactic-location #'#,stx])
-               (set-goal (hole-with-tactic (then tactic1 tactic ...))
-                         (⊢ null expanded-goal))))
+             (set-tactic-location
+              (set-goal (hole-with-tactic basic-proof-state (then tactic1 tactic ...))
+                        (⊢ null expanded-goal))
+              #'#,stx))
            (define-for-syntax the-extract (local-expand #'(get-extract) 'expression null))
            (define-syntax (my-extract s) the-extract)
            (define runtime (my-extract))
@@ -453,7 +455,7 @@
            (struct exn:fail:this-rule exn:fail ()
              #:extra-constructor-name make-exn:fail:this-rule)
            (define (make-subgoal g)
-             (set-goal (make-hole) g))
+             (set-goal (make-hole (get-proof-state hole)) g))
            (syntax-parameterize ([subgoal (make-rename-transformer #'make-subgoal)]
                                  [not-applicable
                                   (lambda (nope-stx)
