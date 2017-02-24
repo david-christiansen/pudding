@@ -3,7 +3,8 @@
 (require "../lcfish.rkt"
          "../lift-tooltips.rkt"
          "../lift-errors.rkt"
-         (for-syntax "../goal.rkt")
+          "../engine/hole.rkt"
+         (for-syntax "../goal.rkt" "../engine/proof-state.rkt")
          racket/stxparam
          (for-syntax racket/list
                      racket/match
@@ -87,13 +88,13 @@
                           (define exn
                             (make-exn:fail:syntax message
                                                   (current-continuation-marks)
-                                                  (list (hole-loc hole-stx))))
+                                                  (list (get-hole-loc hole-stx))))
                           (save-error exn)
                           ((error-display-handler) message exn)
                           #;
                           (raise-syntax-error 'run-script
                                               message
-                                              (hole-loc hole-stx))))
+                                              (get-hole-loc hole-stx))))
   (basic-handler (lambda (exn)
                    (save-error exn)
                    (when (exn:srclocs? exn)
@@ -106,7 +107,7 @@
   
   (tactic-info-hook
    (lambda (hole-stx)
-     (define where (hole-loc hole-stx))
+     (define where (get-hole-loc hole-stx))
      (match (get-goal hole-stx)
        [(? ⊢? g)
         (define goal
@@ -354,10 +355,10 @@
     [(run-script #:goal g tactic ...)
      #`(syntax-parameterize ([tactic-debug-hook #,dump-goal])
          (define-syntax (go s)
-           (set-tactic-location
-            (set-goal (hole-with-tactic basic-proof-state (then tactic ...))
-                      (⊢ null (local-expand #'g 'expression null)))
-            #'#,stx))
+           (set-goal (set-tactic basic-hole
+                                 (tactic/loc (then tactic ...) #'#,stx))
+                     (⊢ null (local-expand #'g 'expression null)))
+           )
          (go))]))
 
 (begin-for-syntax
@@ -376,10 +377,9 @@
          (begin
            (define-for-syntax expanded-goal (local-expand #'goal 'expression null))    
            (define-syntax (get-extract s)
-             (set-tactic-location
-              (set-goal (hole-with-tactic basic-proof-state (then tactic1 tactic ...))
-                        (⊢ null expanded-goal))
-              #'#,stx))
+             (set-goal (set-tactic basic-hole
+                                   (tactic/loc (then tactic1 tactic ...) #'#,stx))
+                       (⊢ null expanded-goal)))
            (define-for-syntax the-extract (local-expand #'(get-extract) 'expression null))
            (define-syntax (my-extract s) the-extract)
            (define runtime (my-extract))
@@ -455,7 +455,7 @@
            (struct exn:fail:this-rule exn:fail ()
              #:extra-constructor-name make-exn:fail:this-rule)
            (define (make-subgoal g)
-             (set-goal (make-hole (get-proof-state hole)) g))
+             (set-goal (make-hole hole) g))
            (syntax-parameterize ([subgoal (make-rename-transformer #'make-subgoal)]
                                  [not-applicable
                                   (lambda (nope-stx)

@@ -3,6 +3,8 @@
 (require (for-syntax syntax/define syntax/parse)
          racket/control)
 
+(provide logic logic-name unseal)
+
 (struct logic (name injection projection))
 
 (define (make-logic name)
@@ -13,6 +15,7 @@
 
 (define (seal logic v)
   ((logic-injection logic) v))
+
 
 (define (unseal logic v)
   ((logic-projection logic) v))

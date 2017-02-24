@@ -76,7 +76,7 @@
 (define (splits lengths lst)
   (cond
     [(null? lengths)
-     (list lst)]
+     '()]
     [(pair? lengths)
      (let-values ([(here rest) (split-at lst (car lengths))])
        (cons here (splits (cdr lengths) rest)))]))
@@ -89,11 +89,12 @@
         (apply append (map refinement-subgoals new-subs))
         (lambda xs
           (apply rebuild
-                 (for/list ([out (in-list (splits (map (compose length refinement-subgoals)
-                                                       new-subs)
-                                                  xs))]
-                            [sub-refinement new-subs])
-                   (apply (refinement-validation sub-refinement) out))))))]))
+                 (map apply
+                      (map refinement-validation new-subs)
+                      (splits (map (lambda (r)
+                                     (length (refinement-subgoals r)))
+                                   new-subs)
+                              xs))))))]))
 
 (define ((REPEAT t) g)
   ((ORELSE (THEN t (REPEAT t)) ID) g))
