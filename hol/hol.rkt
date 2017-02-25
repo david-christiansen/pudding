@@ -2,7 +2,12 @@
 (require
   "../lift-errors.rkt"
   "../lcfish.rkt"
-  (for-syntax "terms.rkt" racket/match syntax/parse (for-syntax racket/base syntax/parse) racket/set))
+  "../engine/hole.rkt"
+  (for-syntax "terms.rkt" racket/match syntax/parse (for-syntax racket/base syntax/parse) racket/set)
+  "../lift-tooltips.rkt")
+
+(let-syntax ([tt (lambda (stx) (ensure-lifted-tooltips) (ensure-error-reports) #'(void))])
+  (begin (tt)))
 
 (begin-for-syntax
   #;(current-tactic-handler (lambda (exn) (raise exn)))
@@ -75,8 +80,8 @@
               (term-const '= t)
               tm2)
              tm3)))
-       (with-syntax ([h1 (set-goal (make-hole) (⊢ Γ g1))]
-                     [h2 (set-goal (make-hole) (⊢ Γ g2))])
+       (with-syntax ([h1 (set-goal (make-hole hole) (⊢ Γ g1))]
+                     [h2 (set-goal (make-hole hole) (⊢ Γ g2))])
          #'(begin h1 h2))]))
   
   (define (MK_COMB hole make-hole)
@@ -96,8 +101,8 @@
                    (term-app (term-const '= #f)
                              u)
                    u)))
-       (with-syntax ([h1 (set-goal (make-hole) (⊢ Γ g1))]
-                     [h2 (set-goal (make-hole) (⊢ Γ g2))])
+       (with-syntax ([h1 (set-goal (make-hole hole) (⊢ Γ g1))]
+                     [h2 (set-goal (make-hole hole) (⊢ Γ g2))])
          #'(begin h1 h2))]))
 
   (define (ABS hole make-hole)
@@ -114,7 +119,7 @@
                     (term-const '= #f)
                     body1)
                    body2)))
-       (set-goal (make-hole) (⊢ Γ g))]
+       (set-goal (make-hole hole) (⊢ Γ g))]
       [other
        ((fail (format "ABS doesn't apply to ~a" other)) hole make-hole)]))
   (define (BETA hole make-hole)
@@ -152,8 +157,8 @@
                 q))))
        (define g2
          (⊢ Γ p))
-       (with-syntax ([h1 (set-goal (make-hole) g1)]
-                     [h2 (set-goal (make-hole) g2)])
+       (with-syntax ([h1 (set-goal (make-hole hole) g1)]
+                     [h2 (set-goal (make-hole hole) g2)])
            #'(begin h1 h2))]))
   (define (DEDUCT_ANTISYM_RULE hole make-hole)
     (define Σ (make-hasheqv))
@@ -169,8 +174,8 @@
          (⊢ (set-add Γ p) q))
        (define g2
          (⊢ (set-add Γ q) p))
-       (with-syntax ([h1 (set-goal (make-hole) g1)]
-                     [h2 (set-goal (make-hole) g2)])
+       (with-syntax ([h1 (set-goal (make-hole hole) g1)]
+                     [h2 (set-goal (make-hole hole) g2)])
          #'(begin h1 h2))]))
 
   (define ((INST Γ p . vars) hole make-hole)
@@ -187,7 +192,7 @@
       [(⊢ Δ q)
        #:when (and (set-empty? (set-subtract Γ-inst Δ))
                    (α-equiv? p-inst q))
-       (set-goal (make-hole) (⊢ Γ p))]))
+       (set-goal (make-hole hole) (⊢ Γ p))]))
 
   (define ((INST_TYPE Γ p . vars) hole make-hole)
     (define Σ
@@ -205,7 +210,7 @@
                                (type-of q)
                                Σ))
                    (α-equiv? p-inst q))
-       (set-goal (make-hole) (⊢ Γ p))]))
+       (set-goal (make-hole hole) (⊢ Γ p))]))
 
   (define (ETA_AX hole make-hole)
     (match (get-goal hole)
@@ -243,15 +248,17 @@
          (for/set ([h (in-set Γ)])
            (unfold c h)))
        (define q (unfold c p))
-       (set-goal (make-hole) (⊢ Δ q))])))
+       (set-goal (make-hole hole) (⊢ Δ q))])))
 
 (define-syntax (run-script stx)
   (syntax-parse stx
     [(run-script #:goal g tactic ...)
      #`(begin
          (define-syntax (go s)
-           (set-goal (hole-with-tactic basic-proof-state (then tactic ...))
-                     (⊢ · g)))
+           (set-goal (hole-with-tactic
+                      basic-hole
+                      (then tactic ...))
+                     (⊢ · (check g))))
          (go))]))
 
 
@@ -278,8 +285,10 @@
 
 (run-script
  #:goal (parse-term '⊤)
- (UNFOLD '⊤))
+ (UNFOLD '⊤)
+ REFL)
 
-#;(run-script
+#;
+(run-script
    #:goal (parse-term '(= (λ (x) x) (λ (y z) y)))
    REFL)

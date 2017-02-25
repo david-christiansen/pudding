@@ -4,6 +4,7 @@
 (provide parse-term recheck type-of α-equiv?
          empty-term-set unify term-subst
          type-inst-in-term free-in? unfold
+         check
          (struct-out type-app)
          (struct-out type-var)
          (struct-out term-var)
@@ -13,7 +14,7 @@
 
 ;; The initial type constants
 (define the-type-constants
-  (make-hasheq '((→ . 2) (bool . 0) (ind . 0))))
+  (make-hasheqv '((→ . 2) (bool . 0) (ind . 0))))
 
 (define (write-type ty port mode)
   (pretty-print (type->sexp ty) port))

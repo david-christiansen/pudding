@@ -20,13 +20,12 @@
   (lambda (hole-stx)
     (printf "Hole state: \n" )))
 
-(begin-for-syntax
-  (define tactic-info-hook
-    (make-parameter
-     (lambda (h) #f)))
-  )
+(define-for-syntax tactic-info-hook
+  (make-parameter
+   (lambda (h) #f)))
+  
 
-;; Failing tactics should raise an exception for which exn:fail:tactics? is truthy.
+
 (begin-for-syntax
   (define (syntax->srcloc stx)
     (srcloc (syntax-source stx)
@@ -35,6 +34,7 @@
             (syntax-position stx)
             (syntax-span stx)))
 
+  ;; Failing tactics should raise an exception for which exn:fail:tactics? is truthy.
   (struct exn:fail:tactics exn:fail (hole location)
     #:extra-constructor-name make-exn:fail:tactics
     #:property prop:exn:srclocs
@@ -61,6 +61,9 @@
     tactic/c
     (make-hole hole))
 
+  (define (in-repeat val)
+    (in-cycle (in-value val)))
+  
   (define/contract ((then-l* tac . tacs) hole make-hole)
     (->* ((or/c tactic/c (promise/c tactic/c)))
          #:rest (listof (sequence/c (or/c tactic/c (promise/c tactic/c))))
@@ -69,14 +72,15 @@
       [(pair? tacs)
        (define inner-next
          (generator (old-hole)
-                    (for ([next-tactic (in-sequences (car tacs)
-                                                  (in-cycle (in-value (tactic/loc skip #f))))])
-                      (yield (hole-with-tactic
-                              old-hole
-                              (lambda (hole-stx m-h)
-                                ((apply then-l* next-tactic (cdr tacs))
-                                 hole-stx
-                                 make-hole)))))))
+           (for ([next-tactic
+                  (in-sequences (car tacs)
+                                (in-repeat (tactic/loc skip #f)))])
+             (yield (hole-with-tactic
+                     old-hole
+                     (lambda (hole-stx m-h)
+                       ((apply then-l* next-tactic (cdr tacs))
+                        hole-stx
+                        make-hole)))))))
        ((force tac) hole inner-next)]
       [else
        ((force tac) hole make-hole)]))
@@ -84,13 +88,15 @@
   (define-syntax (then-l stx)
     (syntax-case stx ()
       [(_ tac1 (tac2 ...) ...)
-       (let ([tactics/loc (for/list ([ts (syntax->list #'((tac2 ...) ...))])
-                            (quasisyntax/loc ts
-                             (list #,@(for/list ([t (syntax->list ts)])
-                                        (quasisyntax/loc t
-                                          (tactic/loc #,t #'#,t))))))])
+       (let ([tactics/loc
+              (for/list ([ts (syntax->list #'((tac2 ...) ...))])
+                (quasisyntax/loc ts
+                  (list #,@(for/list ([t (syntax->list ts)])
+                             (quasisyntax/loc t
+                               (tactic/loc #,t #'#,t))))))])
        (quasisyntax/loc stx
-         (then-l* (tactic/loc tac1 #'tac1) #,@tactics/loc)))]))
+         (then-l* (tactic/loc tac1 #'tac1)
+                  #,@tactics/loc)))]))
 
   ;; If tacs is empty, just run tac. Otherwise, run tac, with
   ;; (then . tacs) running in each subgoal.

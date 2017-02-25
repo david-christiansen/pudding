@@ -17,14 +17,18 @@
      (lambda (hole-stx)
        (define st (get-proof-state hole-stx))
        (define loc (proof-state-loc st))
-       (displayln st)
-       (raise-syntax-error 'no-more-tactics "No more tactics" loc))))
+       (raise-syntax-error 'no-more-tactics "No more tactics" loc))
+     (lambda (f)
+       (if (procedure? f)
+           f
+           (error "must be a proc")))))
 
 (define basic-handler
-  (make-parameter (lambda (e)
-                    ((error-display-handler) (exn-message e) e)
-                    #`(raise #,e)
-                    #;(raise e))))
+  (make-parameter
+   (lambda (e)
+     ((error-display-handler) (exn-message e) e)
+     #`(raise #,e)
+     #;(raise e))))
   
 (struct proof-state
   (tactic
@@ -89,9 +93,9 @@
 (define (get-hole-handler h)
   (proof-state-handler (get-proof-state h)))
 
-(define (get-hole-loc h)
-  (proof-state-loc (get-proof-state h)))
+(define (get-hole-loc hole)
+  (proof-state-loc (get-proof-state hole)))
 
 (define (tactic/loc tac loc)
-  (lambda (h make-h)
-    ((force tac) (set-loc h loc) make-h)))
+  (lambda (hole make-hole)
+    ((force tac) (set-loc hole loc) make-hole)))
