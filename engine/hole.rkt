@@ -4,7 +4,7 @@
                      "proof-state.rkt"))
 
 (provide hole
-         (for-syntax hole? tactic/c basic-hole))
+         (for-syntax hole? tactic/c basic-hole tactic-info-hook))
 
 (define-for-syntax (hole? stx)
   (and (identifier? stx)
@@ -25,8 +25,13 @@
   (set-tactic old-hole (lambda (h n-t)
                          ((no-more-tactics-hook) h))))
 
+(define-for-syntax tactic-info-hook
+  (make-parameter
+   (lambda (h) #f)))
+
 (define-syntax (hole stx)
   (define tac (get-hole-tactic stx))
+  ((tactic-info-hook) stx)
   (tac stx no-more-tactics))
 
 (define-for-syntax basic-hole

@@ -8,7 +8,7 @@
 
 (provide
  (for-syntax skip fail try then then-l emit tactic/c hole-with-tactic log basic-proof-state
-             no-more-tactics-hook tactic-info-hook)
+             no-more-tactics-hook)
  tactic-debug? tactic-debug-hook
  run-script)
 
@@ -19,11 +19,6 @@
 (define-syntax-parameter tactic-debug-hook
   (lambda (hole-stx)
     (printf "Hole state: \n" )))
-
-(define-for-syntax tactic-info-hook
-  (make-parameter
-   (lambda (h) #f)))
-  
 
 
 (begin-for-syntax

@@ -39,6 +39,8 @@
          (struct-out Absurd)
          run-script theorem)
 
+
+
 (module+ test (require rackunit))
 
 (let-syntax ([tt (lambda (stx) (ensure-lifted-tooltips) (ensure-error-reports) #'(void))])
@@ -79,6 +81,19 @@
         (proof-goal->string (get-goal g))
         (proof-goal->string g)))
 
+  (define (ctt-tactic-info hole-stx)
+     (define where (get-hole-loc hole-stx))
+     (match (get-goal hole-stx)
+       [(? ⊢? g)
+        (define message
+          (format "~a:\n~a"
+                  (syntax->datum where)
+                  (dump-goal g)))
+        (save-tooltip message where)]
+       [_ (void)]))
+  
+  #;(tactic-info-hook ctt-tactic-info)
+  
   (no-more-tactics-hook (lambda (hole-stx)
                           (define message
                             (with-output-to-string
@@ -108,18 +123,18 @@
   (tactic-info-hook
    (lambda (hole-stx)
      (define where (get-hole-loc hole-stx))
-     (match (get-goal hole-stx)
-       [(? ⊢? g)
-        (define goal
-          (with-output-to-string
-           (lambda ()
-             (dump-goal g))))
-        (define message
-          (format "~a:\n~a"
-                  (syntax->datum where)
-                  goal))
-        (save-tooltip message where)]
-       [_ (void)]))))
+     (when where
+       (match (get-goal hole-stx)
+         [(? ⊢? g)
+          (define goal
+            (dump-goal g))
+          (define message
+            (format "~a:\n~a"
+                    (syntax->datum where)
+                    goal))
+          (displayln `(,where ,message))
+          (save-tooltip message where)]
+         [_ (void)])))))
 
 
 
@@ -451,7 +466,6 @@
       [(_ goal-pat #:when condition result ...+)
        (syntax/loc stx
          (lambda (hole make-hole)
-           ((tactic-info-hook) hole)
            (struct exn:fail:this-rule exn:fail ()
              #:extra-constructor-name make-exn:fail:this-rule)
            (define (make-subgoal g)
@@ -482,14 +496,14 @@
        (syntax/loc stx
          (rule goal-pat #:when #t result ...))]))
 
-  (define ((guard-goal pred tac) hole make-hole)
-    (match (get-goal hole)
-      [#f ((fail "No goal found.") hole make-hole)]
-      [g #:when (pred g)
-         ((tactic-info-hook) hole)
-         (tac hole make-hole)]
-      [g ((fail (string-append "Wrong goal:\n" (dump-goal g)))
-          hole make-hole)]))
+  (define (guard-goal pred tac)
+    (lambda (hole make-hole)
+      (match (get-goal hole)
+        [#f ((fail "No goal found.") hole make-hole)]
+        [g #:when (pred g)
+           (tac hole make-hole)]
+        [g ((fail (string-append "Wrong goal:\n" (dump-goal g)))
+            hole make-hole)])))
 
   (define emit-void (emit #'(void))))
 

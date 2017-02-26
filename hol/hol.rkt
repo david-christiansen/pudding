@@ -3,6 +3,7 @@
   "../lift-errors.rkt"
   "../lcfish.rkt"
   "../engine/hole.rkt"
+  (for-syntax "../engine/proof-state.rkt")
   (for-syntax "terms.rkt" racket/match syntax/parse (for-syntax racket/base syntax/parse) racket/set)
   "../lift-tooltips.rkt")
 
@@ -12,6 +13,21 @@
 (begin-for-syntax
   #;(current-tactic-handler (lambda (exn) (raise exn)))
 
+  (tactic-info-hook
+   (lambda (hole-stx)
+     (define where (get-hole-loc hole-stx))
+     (displayln (get-goal hole-stx))
+     (match (get-goal hole-stx)
+       [(⊢ Γ p)
+        (define goal
+          (format "~a" p))
+        (define message
+          (format "~a:\n~a"
+                  (syntax->datum where)
+                  goal))
+        (save-tooltip message where)]
+       [_ (void)])))
+  
   (define-syntax (can stx)
     (syntax-parse stx
       [(_ expr)
