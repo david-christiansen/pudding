@@ -7,6 +7,11 @@
   (for-syntax "terms.rkt" racket/match syntax/parse (for-syntax racket/base syntax/parse) racket/set)
   "../lift-tooltips.rkt")
 
+(module+ test
+  (require rackunit)
+  (let-syntax ([tt (lambda (stx) (ensure-lifted-tooltips) (ensure-error-reports) #'(void))])
+    (begin (tt))))
+
 (let-syntax ([tt (lambda (stx) (ensure-lifted-tooltips) (ensure-error-reports) #'(void))])
   (begin (tt)))
 
@@ -16,8 +21,7 @@
   (tactic-info-hook
    (lambda (hole-stx)
      (define where (get-hole-loc hole-stx))
-     (displayln (get-goal hole-stx))
-     (match (get-goal hole-stx)
+     (match (get-hole-goal hole-stx)
        [(⊢ Γ p)
         (define goal
           (format "~a" p))
@@ -50,11 +54,7 @@
                      [_ (raise-argument-error 'in-plist "even-length list" lst)]))
                  (lambda (x y)
                    (or (eqv? x stop) (eqv? y stop)))))
-  
-  (define (get-goal h)
-    (leftmost (syntax-property h 'goal)))
-  (define (set-goal h g)
-    (syntax-property h 'goal g))
+
   
   ;; Sequents are the basis of the logic. The context is a set
   ;; of terms, the body is a term.
@@ -63,7 +63,7 @@
   (define · (empty-term-set))
   
   (define (REFL hole make-hole)
-    (define goal (get-goal hole))
+    (define goal (get-hole-goal hole))
     (match goal
       [(⊢ Γ (term-app
              (term-app
@@ -74,8 +74,8 @@
        #'#t]
       [g ((fail (format "Not reflexive: ~a" g)) hole make-hole)]))
 
-  (define ((TRANS tm2) hole make-hole)
-    (define goal (get-goal hole))
+  (define ((TRANS tm2) hole make-subgoal)
+    (define goal (get-hole-goal hole))
     (match goal
       [(⊢ Γ (term-app
              (term-app
@@ -85,23 +85,23 @@
        (define g1
          (recheck
           (term-app
-             (term-app
-              (term-const '= t)
-              tm1)
-             tm2)))
+           (term-app
+            (term-const '= t)
+            tm1)
+           tm2)))
        (define g2
          (recheck
           (term-app
-             (term-app
-              (term-const '= t)
-              tm2)
-             tm3)))
-       (with-syntax ([h1 (set-goal (make-hole hole) (⊢ Γ g1))]
-                     [h2 (set-goal (make-hole hole) (⊢ Γ g2))])
+           (term-app
+            (term-const '= t)
+            tm2)
+           tm3)))
+       (with-syntax ([h1 (make-subgoal hole (⊢ Γ g1))]
+                     [h2 (make-subgoal hole (⊢ Γ g2))])
          #'(begin h1 h2))]))
   
   (define (MK_COMB hole make-hole)
-    (match (get-goal hole)
+    (match (get-hole-goal hole)
       [(⊢ Γ (term-app
              (term-app
               (term-const '= _)
@@ -117,12 +117,12 @@
                    (term-app (term-const '= #f)
                              u)
                    u)))
-       (with-syntax ([h1 (set-goal (make-hole hole) (⊢ Γ g1))]
-                     [h2 (set-goal (make-hole hole) (⊢ Γ g2))])
+       (with-syntax ([h1 (make-hole hole (⊢ Γ g1))]
+                     [h2 (make-hole hole (⊢ Γ g2))])
          #'(begin h1 h2))]))
 
   (define (ABS hole make-hole)
-    (match (get-goal hole)
+    (match (get-hole-goal hole)
       [(⊢ Γ (term-app
              (term-app
               (term-const '= _)
@@ -135,11 +135,11 @@
                     (term-const '= #f)
                     body1)
                    body2)))
-       (set-goal (make-hole hole) (⊢ Γ g))]
+       (make-hole hole (⊢ Γ g))]
       [other
        ((fail (format "ABS doesn't apply to ~a" other)) hole make-hole)]))
   (define (BETA hole make-hole)
-    (match (get-goal hole)
+    (match (get-hole-goal hole)
       [(⊢ Γ (term-app
              (term-app
               (term-const '= _)
@@ -153,14 +153,14 @@
        #'#t]
       [other ((fail (format "BETA doesn't apply: ~a" other)) hole make-hole)]))
   (define (ASSUME hole make-hole)
-    (match (get-goal hole)
+    (match (get-hole-goal hole)
       [(⊢ Γ p)
        (if (set-member? Γ p)
            #'#t
            ((fail (format "Not an assumption: ~a" p)) hole make-hole))]))
   (define ((EQ_MP p) hole make-hole)
     (define Σ (make-hasheqv))
-    (match (get-goal hole)
+    (match (get-hole-goal hole)
       [(⊢ Γ q)
        #:when (and (can (unify (type-of q) (type-app 'bool '()) Σ))
                    (can (unify (type-of p) (type-app 'bool '()) Σ)))
@@ -175,10 +175,10 @@
          (⊢ Γ p))
        (with-syntax ([h1 (set-goal (make-hole hole) g1)]
                      [h2 (set-goal (make-hole hole) g2)])
-           #'(begin h1 h2))]))
+         #'(begin h1 h2))]))
   (define (DEDUCT_ANTISYM_RULE hole make-hole)
     (define Σ (make-hasheqv))
-    (match (get-goal hole)
+    (match (get-hole-goal hole)
       [(⊢ Γ (term-app
              (term-app
               (term-const '= _)
@@ -204,7 +204,7 @@
         (term-subst h σ Σ)))
     (define p-inst
       (term-subst p σ Σ))
-    (match (get-goal hole)
+    (match (get-hole-goal hole)
       [(⊢ Δ q)
        #:when (and (set-empty? (set-subtract Γ-inst Δ))
                    (α-equiv? p-inst q))
@@ -219,7 +219,7 @@
       (for/set ([h Γ])
         (type-inst-in-term h Σ)))
     (define p-inst (type-inst-in-term p Σ))
-    (match (get-goal hole)
+    (match (get-hole-goal hole)
       [(⊢ Δ q)
        #:when (and (set-empty? (set-subtract Γ-inst Δ))
                    (can (unify (type-of p-inst)
@@ -229,7 +229,7 @@
        (set-goal (make-hole hole) (⊢ Γ p))]))
 
   (define (ETA_AX hole make-hole)
-    (match (get-goal hole)
+    (match (get-hole-goal hole)
       [(⊢ Γ (term-app
              (term-app
               (term-const '= _)
@@ -241,7 +241,7 @@
        #'#t]))
 
   (define (SELECT_AX hole make-hole)
-    (match (get-goal hole)
+    (match (get-hole-goal hole)
       [(⊢ Γ (term-app
              (term-app
               (term-const '⇒ _)
@@ -258,53 +258,56 @@
        #'#t]))
   
   (define ((UNFOLD c) hole make-hole)
-    (match (get-goal hole)
+    (match (get-hole-goal hole)
       [(⊢ Γ p)
        (define Δ
          (for/set ([h (in-set Γ)])
            (unfold c h)))
        (define q (unfold c p))
-       (set-goal (make-hole hole) (⊢ Δ q))])))
+       (make-hole hole (⊢ Δ q))])))
 
 (define-syntax (run-script stx)
   (syntax-parse stx
     [(run-script #:goal g tactic ...)
-     #`(begin
-         (define-syntax (go s)
-           (set-goal (hole-with-tactic
-                      basic-hole
-                      (then tactic ...))
-                     (⊢ · (check g))))
+     #`(let-syntax ([go (lambda (s)
+                          (init-hole (then tactic ...)
+                                     (⊢ · (check g))
+                                     #'#,stx))])
          (go))]))
 
 
 
+(module+ test
+  (check-true
+   (run-script
+    #:goal (parse-term '(= (λ (x) x) (λ (y) y)))
+    REFL))
 
+  (check-true
+   (run-script
+    #:goal (parse-term '(= (λ (x) x) (λ (y) y)))
+    (TRANS (parse-term '(λ (z) z)))
+    REFL))
 
-(run-script
- #:goal (parse-term '(= (λ (x) x) (λ (y) y)))
- REFL)
-(run-script
- #:goal (parse-term '(= (λ (x) x) (λ (y) y)))
- (TRANS (parse-term '(λ (z) z)))
- REFL)
-(run-script
- #:goal (parse-term '(= ((λ (x) x) ⊤) ((λ (y) y) ⊤)))
- MK_COMB REFL)
-(run-script
- #:goal (parse-term '(= ((λ (x) x) ⊤) ((λ (x) x) ⊤)))
- (then-l MK_COMB
-         (ABS))
- REFL)
+  (check-true
+   (run-script
+    #:goal (parse-term '(= ((λ (x) x) ⊤) ((λ (y) y) ⊤)))
+    MK_COMB REFL))
 
+  (check-true
+   (run-script
+    #:goal (parse-term '(= ((λ (x) x) ⊤) ((λ (x) x) ⊤)))
+    (then-l MK_COMB
+            (ABS))
+    REFL))
 
+  (check-true
+   (run-script
+    #:goal (parse-term '⊤)
+    (UNFOLD '⊤)
+    REFL))
 
-(run-script
- #:goal (parse-term '⊤)
- (UNFOLD '⊤)
- REFL)
-
-#;
-(run-script
+  #;
+  (run-script
    #:goal (parse-term '(= (λ (x) x) (λ (y z) y)))
-   REFL)
+   REFL))

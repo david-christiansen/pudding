@@ -1,9 +1,9 @@
 #lang racket/base
-(require racket/match racket/promise)
+(require racket/match racket/promise (for-template racket/base))
 
 (provide basic-handler basic-proof-state proof-state? no-more-tactics-hook
          set-tactic set-goal set-handler set-loc set-basic-state
-         get-hole-tactic get-hole-handler get-hole-loc tactic/loc)
+         get-hole-tactic get-hole-handler get-hole-loc get-hole-goal)
 
 (define proof-state-prop 'proof-state)
 
@@ -27,8 +27,7 @@
   (make-parameter
    (lambda (e)
      ((error-display-handler) (exn-message e) e)
-     #`(raise #,e)
-     #;(raise e))))
+     #`(raise #,e))))
   
 (struct proof-state
   (tactic
@@ -93,9 +92,9 @@
 (define (get-hole-handler h)
   (proof-state-handler (get-proof-state h)))
 
-(define (get-hole-loc hole)
-  (proof-state-loc (get-proof-state hole)))
+(define (get-hole-goal h)
+  (proof-state-goal (get-proof-state h)))
 
-(define (tactic/loc tac loc)
-  (lambda (hole make-hole)
-    ((force tac) (set-loc hole loc) make-hole)))
+(define (get-hole-loc h)
+  (proof-state-loc (get-proof-state h)))
+

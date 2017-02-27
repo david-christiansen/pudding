@@ -3,7 +3,8 @@
 (require "../lcfish.rkt"
          "../lift-tooltips.rkt"
          "../lift-errors.rkt"
-          "../engine/hole.rkt"
+         "../engine/hole.rkt"
+         "../tooltip-info.rkt"
          (for-syntax "../goal.rkt" "../engine/proof-state.rkt")
          racket/stxparam
          (for-syntax racket/list
@@ -69,31 +70,12 @@
      (define (goal g)
        (⊢-goal g))])
 
-  (define (get-goal stx)
-    (leftmost (syntax-property stx 'goal)))
-
-  (define (set-goal stx goal)
-    (syntax-property stx 'goal goal))
-
   (define/contract (dump-goal g)
     (-> (or/c syntax? ⊢?) string?)
     (if (syntax? g)
-        (proof-goal->string (get-goal g))
+        (proof-goal->string (get-hole-goal g))
         (proof-goal->string g)))
 
-  (define (ctt-tactic-info hole-stx)
-     (define where (get-hole-loc hole-stx))
-     (match (get-goal hole-stx)
-       [(? ⊢? g)
-        (define message
-          (format "~a:\n~a"
-                  (syntax->datum where)
-                  (dump-goal g)))
-        (save-tooltip message where)]
-       [_ (void)]))
-  
-  #;(tactic-info-hook ctt-tactic-info)
-  
   (no-more-tactics-hook (lambda (hole-stx)
                           (define message
                             (with-output-to-string
@@ -119,22 +101,8 @@
                        (save-tooltip (exn-message exn) l)))
                    ((error-display-handler) (exn-message exn) exn)
                    #`(raise #,exn)))
-  
-  (tactic-info-hook
-   (lambda (hole-stx)
-     (define where (get-hole-loc hole-stx))
-     (when where
-       (match (get-goal hole-stx)
-         [(? ⊢? g)
-          (define goal
-            (dump-goal g))
-          (define message
-            (format "~a:\n~a"
-                    (syntax->datum where)
-                    goal))
-          (displayln `(,where ,message))
-          (save-tooltip message where)]
-         [_ (void)])))))
+
+  (tactic-info-hook (tooltip-info dump-goal)))
 
 
 
@@ -323,7 +291,7 @@
 
 
 (define-for-syntax (todo hole make-hole)
-  ((fail (dump-goal (get-goal hole)))
+  ((fail (dump-goal (get-hole-goal hole)))
    hole make-hole))
 
 ;; For showing error messages etc
@@ -368,12 +336,11 @@
   (ensure-lifted-tooltips)
   (syntax-parse stx
     [(run-script #:goal g tactic ...)
-     #`(syntax-parameterize ([tactic-debug-hook #,dump-goal])
+     #`(let ()
          (define-syntax (go s)
-           (set-goal (set-tactic basic-hole
-                                 (tactic/loc (then tactic ...) #'#,stx))
-                     (⊢ null (local-expand #'g 'expression null)))
-           )
+           (init-hole (then tactic ...)
+                      (⊢ null (local-expand #'g 'expression null))
+                      #'#,#'(tactic ...)))
          (go))]))
 
 (begin-for-syntax
@@ -392,9 +359,9 @@
          (begin
            (define-for-syntax expanded-goal (local-expand #'goal 'expression null))    
            (define-syntax (get-extract s)
-             (set-goal (set-tactic basic-hole
-                                   (tactic/loc (then tactic1 tactic ...) #'#,stx))
-                       (⊢ null expanded-goal)))
+             (init-hole (then tactic1 tactic ...)
+                        (⊢ null expanded-goal)
+                        #'#,#'(tactic1 tactic ...)))
            (define-for-syntax the-extract (local-expand #'(get-extract) 'expression null))
            (define-syntax (my-extract s) the-extract)
            (define runtime (my-extract))
@@ -465,12 +432,11 @@
     (syntax-parse stx
       [(_ goal-pat #:when condition result ...+)
        (syntax/loc stx
-         (lambda (hole make-hole)
+         (lambda (hole make-subgoal)
            (struct exn:fail:this-rule exn:fail ()
              #:extra-constructor-name make-exn:fail:this-rule)
-           (define (make-subgoal g)
-             (set-goal (make-hole hole) g))
-           (syntax-parameterize ([subgoal (make-rename-transformer #'make-subgoal)]
+           (define (sub g) (make-subgoal hole g))
+           (syntax-parameterize ([subgoal (make-rename-transformer #'sub)]
                                  [not-applicable
                                   (lambda (nope-stx)
                                     (syntax-case nope-stx ()
@@ -482,28 +448,27 @@
                                        #'(raise (make-exn:fail:this-rule
                                                  (string-append
                                                   "Not applicable at goal:\n"
-                                                  (dump-goal (get-goal hole)))
+                                                  (dump-goal (get-hole-goal hole)))
                                                  (current-continuation-marks)))]))])
              (with-handlers ([exn:fail:this-rule?
                               (lambda (e)
-                                ((fail (exn-message e)) hole make-hole))])
-               (match (get-goal hole)
+                                ((fail (exn-message e)) hole make-subgoal))])
+               (match (get-hole-goal hole)
                  [goal-pat #:when condition result ...]
                  [other ((fail (string-append "Wrong goal:\n"
                                               (dump-goal other)))
-                         hole make-hole)])))))]
+                         hole make-subgoal)])))))]
       [(_ goal-pat result ...+)
        (syntax/loc stx
          (rule goal-pat #:when #t result ...))]))
 
-  (define (guard-goal pred tac)
-    (lambda (hole make-hole)
-      (match (get-goal hole)
-        [#f ((fail "No goal found.") hole make-hole)]
-        [g #:when (pred g)
-           (tac hole make-hole)]
-        [g ((fail (string-append "Wrong goal:\n" (dump-goal g)))
-            hole make-hole)])))
+  (define ((guard-goal pred tac) hole make-hole)
+    (match (get-hole-goal hole)
+      [#f ((fail "No goal found.") hole make-hole)]
+      [g #:when (pred g)
+         (tac hole make-hole)]
+      [g ((fail (string-append "Wrong goal:\n" (dump-goal g)))
+          hole make-hole)]))
 
   (define emit-void (emit #'(void))))
 
@@ -641,16 +606,17 @@
 
 (begin-for-syntax
   (define (intro-universe i)
-    (if (exact-nonnegative-integer? i)
-        (guard-goal (lambda (g)
-                      (match-define (⊢ H G) g)
-                      (syntax-parse G
-                        [u:Uni
-                         (> (syntax-e (attribute u.level)) i)]
-                        [_ #f]))
-                    (emit (with-syntax ([i i])
-                            #'(U i))))
-        (fail (format "Not a universe level: ~a" i))))
+    (rule (⊢ H G)
+          (if (not (exact-nonnegative-integer? i))
+              (not-applicable (format "Invalid universe level: ~a" i))
+              (syntax-parse G
+                #:literal-sets (kernel-literals)
+                [u:Uni
+                 (if (> (syntax-e (attribute u.level)) i)
+                     (with-syntax ([i i])
+                       #'(U i))
+                     (not-applicable "Universe too big"))]
+                [_ (not-applicable (format "Not a universe: ~a" G))]))))
 
   (define equal-universe
     (guard-goal (match-lambda
@@ -726,11 +692,13 @@
     (rule (⊢ H G)
           (syntax-parse G
             [u:Uni
-             #`(side-conditions
-                #,(subgoal (⊢ H (local-expand #`(≡ u #,A #,A) 'expression null)))
-                (≡ #,A
-                   #,(subgoal (⊢ H A))
-                   #,(subgoal (⊢ H A))))]
+             (with-syntax ([A A]
+                           [g1 (subgoal (⊢ H (local-expand #`(≡ u #,A #,A) 'expression null)))]
+                           [g2 (subgoal (⊢ H A))]
+                           [g3 (subgoal (⊢ H A))])
+             #'(side-conditions
+                g1
+                (≡ A g2 g3)))]
             [other (not-applicable)])))
   (define equality-equality
     (rule (⊢ H G)
@@ -838,10 +806,11 @@
 (module+ test
   (define U1≡U0
     (run-script #:goal (U 3)
-                (then-l (equality-formation (local-expand #'(U 2) 'expression null))
-                        (equal-universe
+                (then-l (equality-formation
+                         (local-expand #'(U 2) 'expression null))
+                        [equal-universe
                          (intro-universe 1)
-                         (intro-universe 0)))))
+                         (intro-universe 0)])))
   (check-equal? U1≡U0 (≡ (U 2) (U 1) (U 0)))
 
   (define an-eq-eq
@@ -879,26 +848,21 @@
 ;; Function rules
 
 ;; For trampolining through the macro expander to get the right scopes.
-;; Communicates with make-assumption-hole and →-intro.
 (define-syntax (assumption-hole stx)
-  (define make-next (syntax-property stx 'next-hole))
+  (define make-subgoal (syntax-property stx 'make-subgoal))
   (define goal-maker (syntax-property stx 'goal-maker))
-  (define params (leftmost (syntax-property stx 'params)))
   (syntax-case stx ()
     [(_ x y ...)
-     (call-with-parameterization
-      params
-      (lambda ()
-        (make-next (apply goal-maker (syntax->list #'(x y ...))))))]))
+     (make-subgoal
+      (apply goal-maker (syntax->list #'(x y ...))))]))
 
-(define-for-syntax (make-assumption-hole next-hole goal-maker . xs)
+(define-for-syntax (make-assumption-hole make-subgoal goal-maker . xs)
   (syntax-property
    (syntax-property
-    (syntax-property #`(assumption-hole #,@xs)
-                     'goal-maker
-                     goal-maker)
-    'next-hole next-hole)
-   'params (current-parameterization)))
+    #`(assumption-hole #,@xs)
+    'goal-maker
+    goal-maker)
+   'make-subgoal make-subgoal))
 
 (define-syntax (side-conditions stx)
   (syntax-parse stx
@@ -917,11 +881,12 @@
              #`(side-conditions
                 #,dom-ok
                 (Π #,dom
-                   (λ (#,x) #,(make-assumption-hole (lambda (g) (subgoal g))
-                                                    (lambda (good-x)
-                                                      (⊢ (cons (hyp good-x dom #f) H)
-                                                         G))
-                                                    x))))]
+                   (λ (#,x)
+                     #,(make-assumption-hole (lambda (g) (subgoal g))
+                                             (lambda (good-x)
+                                               (⊢ (cons (hyp good-x dom #f) H)
+                                                  G))
+                                             x))))]
             [_ (not-applicable)])))
 
   (define (Π-in-uni (new-var (gensym 'y)))
@@ -1016,7 +981,7 @@
     (run-script #:goal (U 2)
                 (then-l
                  (Π-formation 'x #'(U 1))
-                 (equal-universe (intro-universe 1)))))
+                 [equal-universe (intro-universe 1)])))
   (check-true (Π? U1→U1))
   (check-equal? (Π-domain U1→U1) (U 1))
   (check-equal? ((Π-codomain U1→U1) "any-old-thing") (U 1))
@@ -1026,20 +991,20 @@
                           (Π (U 1) (λ (_) (U 1)))
                           (Π (U 1) (λ (_) (U 1))))
                 (then-l (Π-in-uni 'y)
-                        (equal-universe equal-universe))))
+                        [equal-universe equal-universe])))
   (check-true (void? U1→U1:U2))
 
   (define U1-identity
     (run-script #:goal (Π (U 1) (λ (_) (U 1)))
                 (then-l (Π-intro 2 'some-uni)
-                        (equal-universe (assumption 0)))))
+                        [equal-universe (assumption 0)])))
   (check-true (procedure? U1-identity))
   (check-equal? (U1-identity (U 0)) (U 0))
 
   (define U1-refl
     (run-script #:goal (Π (U 2) (λ (ty) (≡ (U 2) ty ty)))
                 (then-l (Π-intro 3 't)
-                        (equal-universe (assumption-refl 0)))))
+                        [equal-universe (assumption-refl 0)])))
   (check-true (procedure? U1-refl))
   (check-equal? (U1-refl (U 0)) (void))
 
@@ -1120,7 +1085,7 @@
     (run-script #:goal (Π (Absurd) (λ (_) (Absurd)))
                 (then-l
                  (Π-intro 0 'h)
-                 (absurd-equality (assumption 0)))))
+                 [absurd-equality (assumption 0)])))
   (check-true (procedure? absurd→absurd))
 
   (define absurdities-abound
