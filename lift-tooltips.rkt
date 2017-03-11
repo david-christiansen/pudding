@@ -17,8 +17,8 @@
     (ensure-lifted-tooltips)
     (define tooltip
       (vector where
-              (source-location-position where)
-              (+ (source-location-position where)
+              (sub1 (source-location-position where))
+              (+ (sub1 (source-location-position where))
                  (source-location-span where))
               msg))
     (log-message online-check-syntax-logger

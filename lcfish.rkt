@@ -1,14 +1,16 @@
 #lang racket/base
 (require (for-syntax racket/base racket/generator racket/contract racket/sequence racket/promise racket/match
-                     
+                     racket/function
                      (for-syntax racket/base))
          racket/stxparam
          (for-syntax "engine/proof-state.rkt")
+         (for-syntax "seal.rkt")
+         (for-syntax "engine/refinement.rkt")
          "engine/hole.rkt")
 
 (provide
- (for-syntax skip fail try then then-l emit tactic/c subgoal-with-tactic log basic-proof-state
-             no-more-tactics-hook)
+ (for-syntax skip fail try then then-l tactic/c subgoal-with-tactic basic-proof-state
+             no-more-tactics-hook make-skip debug)
  tactic-debug? tactic-debug-hook
  run-script)
 
@@ -54,7 +56,13 @@
   ;; A tactic that does nothing.
   (define/contract (skip hole make-subgoal)
     tactic/c
-    (make-subgoal hole (get-hole-goal hole)))
+    ((get-skip-tac hole) hole make-subgoal))
+
+  (define/contract ((make-skip seal) hole make-subgoal)
+    (-> (-> any/c sealed?) tactic/c)
+    (call-with-continuation-barrier
+     (thunk
+      (seal (refine hole (make-subgoal hole (get-hole-goal hole)))))))
 
   (define (in-forever val)
     (in-cycle (in-value val)))
@@ -65,18 +73,20 @@
          tactic/c)
     (cond
       [(pair? tacs)
-       (define inner-next
-         (generator (old-hole new-goal)
+       (define inners
+         (generator ()
            (for ([next-tactic
                   (in-sequences (car tacs)
-                                (in-forever (tactic/loc skip #'here)))])
-             (yield (subgoal-with-tactic
-                     old-hole
-                     new-goal
-                     (lambda (hole-stx _)
-                       ((apply then-l* next-tactic (cdr tacs))
-                        hole-stx
-                        make-subgoal)))))))
+                                (in-forever skip))])
+             (yield (lambda (old-hole new-goal)
+                      (subgoal-with-tactic
+                       old-hole
+                       new-goal
+                       (lambda (hole-stx _)
+                         ((apply then-l* next-tactic (cdr tacs))
+                          hole-stx
+                          make-subgoal))))))))
+       (define inner-next (lambda (old-hole new-goal) ((inners) old-hole new-goal)))
        ((force tac) hole inner-next)]
       [else
        ((force tac) hole make-subgoal)]))
@@ -108,10 +118,12 @@
           (subgoal-with-tactic
            old-hole
            new-goal
-           (lambda (hole m-s)
-             ((apply then* tacs)
-              hole
-              make-subgoal)))))]
+           (procedure-rename
+            (lambda (hole m-s)
+              ((apply then* tacs)
+               hole
+               make-subgoal))
+            (string->symbol (format "~a" tacs))))))]
       [else
        ((force tac) hole make-subgoal)]))
 
@@ -129,12 +141,13 @@
   (define/contract ((log message) hole make-hole)
     (-> any/c tactic/c)
     (println message)
-    (make-hole hole))
+    (skip hole make-hole))
 
   ;; Emit a particular piece of syntax.
   (define/contract ((emit out-stx) hole make-subgoal)
     (-> syntax? tactic/c)
-    out-stx)
+    #;(displayln `(emitting ,out-stx))
+    (seal-lcfish-test (refine hole out-stx)))
 
   (define/contract ((fail message) hole make-subgoal)
     (-> string? tactic/c)
@@ -159,11 +172,10 @@
       [(pair? alts)
        (define h (get-hole-handler hole))
        (let ([res (let/ec k
-                    (local-expand ((force tac)
-                                   (set-handler hole k)
-                                   (use-handler h make-subgoal))
-                                  'expression
-                                  null))])
+                    (local-expand-sealed 
+                     ((force tac)
+                      (set-handler hole k)
+                      (use-handler h make-subgoal))))])
          (if (exn:fail? res)
              ((apply try* alts) hole make-subgoal)
              res))]
@@ -182,12 +194,21 @@
        (quasisyntax/loc stx
          (try* tacs/locs ...)))])))
 
+(begin-for-syntax
+  (define ((debug (message "")) hole make-hole)
+    (displayln `(,message ,(get-hole-loc hole) ,(get-hole-tactic hole) ,(get-hole-goal hole)))
+    (skip hole make-hole))
+
+  (define-stamp lcfish-test))
+
 (define-syntax (run-script stx)
   (syntax-case stx ()
     [(_ tacs ...)
      #`(let ()
          (define-syntax (go s)
-           (init-hole (then tacs ...) #f #'#,stx))
+           (init-hole unseal-lcfish-test
+                      (make-skip seal-lcfish-test)
+                      (then tacs ...) #f #f))
          (go))]))
 
 
@@ -204,14 +225,28 @@
   
   (define-for-syntax (repeat t)
     (then t
-           (try (delay (repeat t))
-                skip)))
+          (try (delay (repeat t))
+               skip)))
 
   (define-for-syntax (plus hole make-subgoal)
     (define h1 (make-subgoal hole #f))
     (define h2 (make-subgoal hole #f))
-    #`(+ #,h1 #,h2))
+    (seal-lcfish-test (refine hole #`(+ #,h1 #,h2))))
 
+  
+  
+  (check-equal?
+   (run-script #;(debug "foo")
+              (try (fail "fnord")
+                   skip)
+              
+              plus
+              
+              #;(debug "bar")
+              (emit #'22)
+              #;(debug "hi"))
+   44)
+  
   (define seven
     (run-script (emit #'7)))
   (check-equal? seven 7)
@@ -240,7 +275,7 @@
                         ((emit #'1) plus)
                         ((emit #'2) (emit #'3)))))
   (check-equal? six 6)
-
+  
   (define another-four
     (run-script (try (fail "hmm")
                      plus)

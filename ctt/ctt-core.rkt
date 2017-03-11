@@ -5,7 +5,10 @@
          "../lift-errors.rkt"
          "../engine/hole.rkt"
          "../tooltip-info.rkt"
+         "../rule.rkt"
+         (for-syntax "../seal.rkt" "../engine/refinement.rkt")
          (for-syntax "../goal.rkt" "../engine/proof-state.rkt")
+         (for-syntax "unsafe.rkt")
          racket/stxparam
          (for-syntax racket/list
                      racket/match
@@ -25,7 +28,6 @@
                      hyp
                      ⊢
                      at-hyp
-                     rule subgoal not-applicable
                      make-assumption-hole
                      constructs?
                      subst* subst subst1
@@ -50,7 +52,7 @@
   (let-syntax ([tt (lambda (stx) (ensure-lifted-tooltips) (ensure-error-reports) #'(void))])
   (begin (tt))))
 
-(begin-for-syntax
+(begin-for-syntax  
   (struct hyp (name type visible?)
     #:transparent
     #:methods gen:hypothesis
@@ -71,7 +73,7 @@
        (⊢-goal g))])
 
   (define/contract (dump-goal g)
-    (-> (or/c syntax? ⊢?) string?)
+    (-> (or/c ⊢?) string?)
     (if (syntax? g)
         (proof-goal->string (get-hole-goal g))
         (proof-goal->string g)))
@@ -100,7 +102,7 @@
                      (for ([l locs])
                        (save-tooltip (exn-message exn) l)))
                    ((error-display-handler) (exn-message exn) exn)
-                   #`(raise #,exn)))
+                   (seal-ctt (refinement #`(raise #,exn) (⊢ '() #'here) #'here))))
 
   (tactic-info-hook (tooltip-info dump-goal)))
 
@@ -338,9 +340,12 @@
     [(run-script #:goal g tactic ...)
      #`(let ()
          (define-syntax (go s)
-           (init-hole (then tactic ...)
-                      (⊢ null (local-expand #'g 'expression null))
-                      #'#,#'(tactic ...)))
+           (init-hole
+            unseal-ctt
+            (make-skip seal-ctt)
+            (then tactic ...)
+            (⊢ null (local-expand #'g 'expression null))
+            #'#,#'(tactic ...)))
          (go))]))
 
 (begin-for-syntax
@@ -354,12 +359,16 @@
   (syntax-parse stx
     [(_ name:id goal tactic1 tactic ...)
      (define runtime-name (generate-temporary #'name))
-     (with-syntax ([runtime runtime-name])
+     (with-syntax ([runtime runtime-name]
+                   [unseal #'unseal-ctt]
+                   [seal #'seal-ctt])
        (quasisyntax/loc stx
          (begin
            (define-for-syntax expanded-goal (local-expand #'goal 'expression null))    
            (define-syntax (get-extract s)
-             (init-hole (then tactic1 tactic ...)
+             (init-hole unseal
+                        (make-skip seal)
+                        (then tactic1 tactic ...)
                         (⊢ null expanded-goal)
                         #'#,#'(tactic1 tactic ...)))
            (define-for-syntax the-extract (local-expand #'(get-extract) 'expression null))
@@ -368,6 +377,8 @@
            (define-syntax name (theorem-definition expanded-goal the-extract #'runtime)))))]))
 
 (module+ test
+  (define-for-syntax (emit stx)
+    (rule _ #:seal seal-ctt stx))
   (theorem garbage (cons '(lotsa stuff) #f) (emit #'(cons #t #t)))
 
   ;; Test the rename transformer bit
@@ -421,46 +432,7 @@
 ;
 
 (begin-for-syntax
-  (define-syntax-parameter subgoal
-    (lambda (_) (raise-syntax-error 'subgoal "Not in a rule")))
-
-  ;; TODO: find the right name here
-  (define-syntax-parameter not-applicable
-    (lambda (_) (raise-syntax-error 'not-applicable "Not in a rule")))
-
-  (define-syntax (rule stx)
-    (syntax-parse stx
-      [(_ goal-pat #:when condition result ...+)
-       (syntax/loc stx
-         (lambda (hole make-subgoal)
-           (struct exn:fail:this-rule exn:fail ()
-             #:extra-constructor-name make-exn:fail:this-rule)
-           (define (sub g) (make-subgoal hole g))
-           (syntax-parameterize ([subgoal (make-rename-transformer #'sub)]
-                                 [not-applicable
-                                  (lambda (nope-stx)
-                                    (syntax-case nope-stx ()
-                                      [(_ msg)
-                                       #'(raise (make-exn:fail:this-rule
-                                                 msg
-                                                 (current-continuation-marks)))]
-                                      [(_)
-                                       #'(raise (make-exn:fail:this-rule
-                                                 (string-append
-                                                  "Not applicable at goal:\n"
-                                                  (dump-goal (get-hole-goal hole)))
-                                                 (current-continuation-marks)))]))])
-             (with-handlers ([exn:fail:this-rule?
-                              (lambda (e)
-                                ((fail (exn-message e)) hole make-subgoal))])
-               (match (get-hole-goal hole)
-                 [goal-pat #:when condition result ...]
-                 [other ((fail (string-append "Wrong goal:\n"
-                                              (dump-goal other)))
-                         hole make-subgoal)])))))]
-      [(_ goal-pat result ...+)
-       (syntax/loc stx
-         (rule goal-pat #:when #t result ...))]))
+  
 
   (define ((guard-goal pred tac) hole make-hole)
     (match (get-hole-goal hole)
@@ -469,8 +441,7 @@
          (tac hole make-hole)]
       [g ((fail (string-append "Wrong goal:\n" (dump-goal g)))
           hole make-hole)]))
-
-  (define emit-void (emit #'(void))))
+)
 
 
 
@@ -508,7 +479,7 @@
                    (cons this-hyp after)))])))
 
   (define (assumption n)
-    (rule (⊢ H G)
+    (rule (⊢ H G) #:seal seal-ctt
           (define assumptions (length H))
           (cond
             [(not (exact-nonnegative-integer? n))
@@ -534,6 +505,7 @@
 
   (define (lemma the-lemma [name 'lemma])
     (rule (⊢ H G)
+          #:seal seal-ctt
           #:when (and (identifier? the-lemma))
           (define-values (thm transformer?)
             (syntax-local-value/immediate the-lemma))
@@ -549,6 +521,7 @@
 
   (define (unfold the-lemma [name 'unfolding])
     (rule (⊢ H G)
+          #:seal seal-ctt
           #:when (and (identifier? the-lemma))
           (define-values (thm transformer?)
             (syntax-local-value/immediate the-lemma))
@@ -569,11 +542,13 @@
 
   (define ADMIT
     (rule (⊢ H G)
+          #:seal seal-ctt
           #'(error "Admitted")))
   
   ;; TODO: test me
   (define (explicit-intro term)
     (rule (⊢ H G)
+          #:seal seal-ctt
           (define term-core (local-expand term 'expression null))
           #`(side-conditions #,(subgoal (⊢ H
                                            (local-expand
@@ -607,10 +582,10 @@
 (begin-for-syntax
   (define (intro-universe i)
     (rule (⊢ H G)
+          #:seal seal-ctt
           (if (not (exact-nonnegative-integer? i))
               (not-applicable (format "Invalid universe level: ~a" i))
               (syntax-parse G
-                #:literal-sets (kernel-literals)
                 [u:Uni
                  (if (> (syntax-e (attribute u.level)) i)
                      (with-syntax ([i i])
@@ -619,24 +594,24 @@
                 [_ (not-applicable (format "Not a universe: ~a" G))]))))
 
   (define equal-universe
-    (guard-goal (match-lambda
-                  [(⊢ H G)
-                   (syntax-parse G
-                     #:literal-sets (kernel-literals)
-                     [eq:Eq
-                      #:with u1:Uni #'eq.type
-                      #:with u2:Uni #'eq.left
-                      #:with u3:Uni #'eq.right
-                      (and (< (syntax-e (attribute u2.level))
-                              (syntax-e (attribute u1.level)))
-                           (= (syntax-e (attribute u2.level))
-                              (syntax-e (attribute u3.level))))]
-                     [_ #f])]
-                  [_ #f])
-                emit-void))
+    (rule (⊢ H G)
+          #:seal seal-ctt
+          (syntax-parse G
+            #:literal-sets (kernel-literals)
+            [eq:Eq
+             #:with u1:Uni #'eq.type
+             #:with u2:Uni #'eq.left
+             #:with u3:Uni #'eq.right
+             #:when (and (< (syntax-e (attribute u2.level))
+                            (syntax-e (attribute u1.level)))
+                         (= (syntax-e (attribute u2.level))
+                            (syntax-e (attribute u3.level))))
+             #'(void)]
+            [_ (not-applicable)])))
 
   (define (cumulativity j)
     (rule (⊢ H G)
+          #:seal seal-ctt
           (syntax-parse G
             [eq:Eq
              #:with u:Uni #'eq.type
@@ -658,8 +633,7 @@
                 equal-universe))
   (check-equal? yep (void))
 
-  (theorem u-bigger
-           (≡ (U 4) (U 0) (U 0))
+  (theorem u-bigger (≡ (U 4) (U 0) (U 0))
            (cumulativity 3)
            equal-universe))
 
@@ -690,6 +664,7 @@
   ;; This really needs dependent refinement!
   (define (equality-formation A)
     (rule (⊢ H G)
+          #:seal seal-ctt
           (syntax-parse G
             [u:Uni
              (with-syntax ([A A]
@@ -702,6 +677,7 @@
             [other (not-applicable)])))
   (define equality-equality
     (rule (⊢ H G)
+          #:seal seal-ctt
           (syntax-parse G
             [eq:Eq
              #:with u:Uni #'eq.type
@@ -722,6 +698,7 @@
 
   (define equality-identity
     (rule (⊢ H G)
+          #:seal seal-ctt
           (syntax-parse G
             #:literals (void)
             #:literal-sets (kernel-literals)
@@ -734,6 +711,7 @@
   
   (define (assumption-refl n)
     (rule (⊢ H G)
+          #:seal seal-ctt
           (define assumptions (length H))
           (cond
             [(not (exact-nonnegative-integer? n))
@@ -763,6 +741,7 @@
 
   (define (replace i type left right ctxt)
     (rule (⊢ H G)
+          #:seal seal-ctt
           (define rewrite-ctxt (local-expand ctxt 'expression null))
           (syntax-parse rewrite-ctxt
             #:literal-sets (kernel-literals)
@@ -788,12 +767,14 @@
 
   (define symmetry
     (rule (⊢ H G)
+          #:seal seal-ctt
           (syntax-parse G
             [eq:Eq
              (subgoal (⊢ H (local-expand #'(≡ eq.type eq.right eq.left) 'expression null)))])))
   
   (define (transitivity middle)
     (rule (⊢ H G)
+          #:seal seal-ctt
           (syntax-parse G
             [eq:Eq
              #`(side-conditions
@@ -874,6 +855,7 @@
 (begin-for-syntax
   (define (Π-formation x dom)
     (rule (⊢ H G)
+          #:seal seal-ctt
           (syntax-parse G
             [u:Uni
              (define dom-ok
@@ -891,6 +873,7 @@
 
   (define (Π-in-uni (new-var (gensym 'y)))
     (rule (⊢ H G)
+          #:seal seal-ctt
           (syntax-parse G
             #:literal-sets (kernel-literals)
             [(#%plain-app eq
@@ -921,6 +904,7 @@
   (define (Π-intro i (var #f))
     (if (exact-nonnegative-integer? i)
         (rule (⊢ H G)
+              #:seal seal-ctt
               (syntax-parse G
                 #:literal-sets (kernel-literals)
                 [(#%plain-app pi dom (#%plain-lambda (x:id) cod))
@@ -943,6 +927,7 @@
 
   (define λ-equality
     (rule (⊢ H G)
+          #:seal seal-ctt
           (syntax-parse G
             #:literal-sets (kernel-literals)
             [eq:Eq
@@ -955,6 +940,7 @@
 
   (define (extensionality (var 'arg))
     (rule (⊢ H G)
+          #:seal seal-ctt
           (syntax-parse G
             #:literal-sets (kernel-literals)
             [eq:Eq
@@ -1040,12 +1026,14 @@
 (begin-for-syntax
   (define absurd-formation
     (rule (⊢ H G)
+          #:seal seal-ctt
           (syntax-parse G
             [u:Uni
              #'(Absurd)]
             [_ (not-applicable)])))
   (define absurd-equality
     (rule (⊢ H G)
+          #:seal seal-ctt
           (syntax-parse G
             [eq:Eq
              #:with u:Uni #'eq.type
@@ -1055,10 +1043,12 @@
             [_ (not-applicable)])))
   (define (absurd-elim n)
     (rule (⊢ (at-hyp n Δ (hyp x ty _) Γ) G)
+          #:seal seal-ctt
           #:when (syntax-parse ty [a:Abs #t] [_ #f])
           #`(error #,x)))
   (define absurd-member
     (rule (⊢ H G)
+          #:seal seal-ctt
           (syntax-parse G
             #:literal-sets (kernel-literals)
             #:literals (error)
@@ -1085,7 +1075,7 @@
     (run-script #:goal (Π (Absurd) (λ (_) (Absurd)))
                 (then-l
                  (Π-intro 0 'h)
-                 [absurd-equality (assumption 0)])))
+                 [absurd-equality (then (debug "here") (assumption 0))])))
   (check-true (procedure? absurd→absurd))
 
   (define absurdities-abound
@@ -1129,6 +1119,7 @@
   
   (define list-formation
     (rule (⊢ H G)
+          #:seal seal-ctt
           (syntax-parse G
             #:literal-sets (kernel-literals)
             [u:Uni
@@ -1136,6 +1127,7 @@
 
   (define list-equality
     (rule (⊢ H G)
+          #:seal seal-ctt
           (syntax-parse G
             #:literal-sets (kernel-literals)
             [eq:Eq
@@ -1146,6 +1138,7 @@
 
   (define (list-intro-nil i)
     (rule (⊢ H G)
+          #:seal seal-ctt
           (syntax-parse G
             #:literal-sets (kernel-literals)
             [l:Lst
@@ -1155,6 +1148,7 @@
 
   (define (list-nil-equality i)
     (rule (⊢ H G)
+          #:seal seal-ctt
           (syntax-parse G
             #:literal-sets (kernel-literals)
             [eq:Eq
@@ -1165,12 +1159,14 @@
 
   (define list-intro-cons
     (rule (⊢ H G)
+          #:seal seal-ctt
           (syntax-parse G
             [l:Lst
              #'(cons #,(subgoal (⊢ H #'l.type)) #,(subgoal (⊢ H #'l)))])))
 
   (define list-cons-equality
     (rule (⊢ H G)
+          #:seal seal-ctt
           (syntax-parse G
             #:literal-sets (kernel-literals)
             #:literals (cons)
@@ -1185,6 +1181,7 @@
 
   (define (list-elim n)
     (rule (⊢ (and H (at-hyp n Δ (hyp xs l #f) Γ)) G)
+          #:seal seal-ctt
           (syntax-parse l
             #:literal-sets (kernel-literals)
             [lst:Lst

@@ -1,11 +1,12 @@
 #lang racket
 
 (require (except-in "lcfish.rkt" run-script)
-         (for-syntax (for-syntax racket/base))
+         (for-syntax racket/base (for-syntax racket/base))
          "engine/hole.rkt"
          (for-syntax "engine/proof-state.rkt")
          "tooltip-info.rkt"
-         (for-syntax "engine/proof-state.rkt")
+         "rule.rkt"
+         (for-syntax "seal.rkt")
          (for-syntax "stx-utils.rkt"
                      racket/contract racket/match racket/promise syntax/parse racket/port syntax/srcloc)
          racket/stxparam
@@ -41,6 +42,21 @@
              (type=? #'c #'d))]
        [_ #f])]
     [_ #f]))
+
+(define-for-syntax ((type-is? t1) t2)
+  (type=? t1 t2))
+
+(begin-for-syntax
+  (define-match-expander arrow-type
+    (lambda (stx)
+      (syntax-parse stx
+        [(a-t dom cod)
+         #'(app (lambda (x)
+                  (syntax-case x (→)
+                    [(→ a b)
+                     (cons a b)]
+                    [_ #f]))
+                (cons dom cod))]))))
 
 (define-for-syntax (type->contract t)
   (syntax-case t (→ Int String)
@@ -122,21 +138,33 @@
 
   (define/contract (int-intro i)
     (-> integer? tactic/c)
-    (if (integer? i)
-        (guard-goal (lambda (g) (type=? (⊢-goal g) #'Int))
-                    (emit (datum->syntax #'here i)))
-        (fail (format "Not an int: ~a" i))))
+    (rule (⊢ _ (? (type-is? #'Int)))
+          #:seal seal-stlc
+          (if (integer? i)
+              (datum->syntax #'here i)
+              (not-applicable "Not an integer: ~a" i))))
 
   (define/contract (string-intro s)
     (-> string? tactic/c)
-    (if (string? s)
-        (guard-goal (lambda (g) (type=? (⊢-goal g) #'String))
-                    (emit (datum->syntax #'here s)))
-        (fail (format "Not a string: ~a" s))))
+    (rule (⊢ _ (? (type-is? #'String)))
+          #:seal seal-stlc
+          (if (string? s)
+              (datum->syntax #'here s)
+              (not-applicable "Not a string: ~a" s))))
 
 
   (define/contract (→-intro [x 'x])
     (->* () (symbol?) tactic/c)
+    #;(rule (⊢ H (arrow-type a b))
+          #:seal seal-stlc
+          #`(lambda (#,x)
+              #,(make-assumption-hole hole
+                                      make-hole
+                                      (datum->syntax #'here x)
+                                      #'a
+                                      H
+                                      #'b))
+          )
     (lambda (hole make-hole)
       (match-define (⊢ H G) (get-hole-goal hole))
       (syntax-case G (→)
@@ -152,6 +180,16 @@
         [t
          ((fail (format "Not an arrow: ~a" (syntax->datum G))) hole make-hole)])))
 
+  (define repeat-string
+    (rule (⊢ H G)
+          #:seal seal-stlc
+          #:when (type=? G #'String)
+          (with-syntax ([count (subgoal (⊢ H #'Int))]
+                        [str (subgoal (⊢ H #'String))])
+          #'(apply string-append
+                   (for/list ([n (in-range 0 count)])
+                     str)))))
+  
   (define/contract (assumption n)
     (-> exact-nonnegative-integer? tactic/c)
     (lambda (hole make-hole)
@@ -189,16 +227,20 @@
                            h)))
            hole make-subgoal))))
 
-  (define/contract (strlen hole make-subgoal)
+  (define/contract strlen
     tactic/c
-    (match-define (⊢ H G) (get-hole-goal hole))
-    (if (not (type=? G #'Int))
-        ((fail (format "Type not Int: ~a" G)) hole make-subgoal)
-        (with-syntax ([g (make-subgoal hole (⊢ H #'String))])
-          #'(string-length g)))))
+    (rule (⊢ H (? (type-is? #'Int)))
+          #:seal seal-stlc
+          (with-syntax ([g (subgoal (⊢ H #'String))])
+            #'(string-length g)))))
 
 
 (begin-for-syntax
+  (define-stamp stlc)
+
+  (define ((emit stx) h make-subgoal)
+    (seal-stlc (refine h stx)))
+  
   (define-splicing-syntax-class hyps-option
     (pattern (~seq #:hyps [(x:id t:expr) ...])
              #:with hyps #'[(x t) ...])
@@ -211,6 +253,8 @@
      (with-syntax ([((x t) ...) #'hs.hyps])
        #`(let-syntax ([go (lambda (s)
                             (init-hole
+                             unseal-stlc
+                             (make-skip seal-stlc)
                              (then tactic ...)
                              (⊢ (reverse (list (list #'x #'t #f) ...)) #'g)
                              #'#,stx))])
@@ -306,4 +350,10 @@
                          (assumption 1)])))
   (for* ([i (in-range 100)]
          [j (in-range 100)])
-    (check-equal? ((add i) j) (+ i j))))
+    (check-equal? ((add i) j) (+ i j)))
+
+  (define b3 (run-script #:goal String
+                         (then-l repeat-string
+                                 ((then (int-intro 3))
+                                  (then (string-intro "badger "))))))
+  )

@@ -3,7 +3,9 @@
 (require "ctt-core.rkt"
          "../lift-tooltips.rkt"
          "../lift-errors.rkt"
+         "../rule.rkt"
          (except-in "../lcfish.rkt" run-script)
+         (for-syntax "unsafe.rkt")
          (for-syntax racket/match syntax/parse racket/promise))
 
 (module+ test (require rackunit))
@@ -32,12 +34,14 @@
   
   (define nat-formation
     (rule (⊢ H G)
+          #:seal seal-ctt
           #:when (syntax-parse G
                    [u:Uni #t]
                    [_     #f])
           (local-expand #'(Nat) 'expression null)))
   (define nat-equality
     (rule (⊢ H G)
+          #:seal seal-ctt
           (syntax-parse G
             #:literal-sets (kernel-literals)
             [eq:Eq
@@ -50,6 +54,7 @@
             [_ (not-applicable)])))
   (define (nat-intro i)
     (rule (⊢ H G)
+          #:seal seal-ctt
           (syntax-parse G
             #:literal-sets (kernel-literals)
             [(#%plain-app n:id)
@@ -60,6 +65,7 @@
 
   (define nat-literal-equality
     (rule (⊢ H G)
+          #:seal seal-ctt
           (syntax-parse G
             #:literal-sets (kernel-literals)
             [eq:Eq
@@ -75,6 +81,7 @@
 
   (define nat-intro-add1
     (rule (⊢ H G)
+          #:seal seal-ctt
           (syntax-parse G
             #:literal-sets (kernel-literals)
             [(#%plain-app n:id)
@@ -84,6 +91,7 @@
 
   (define nat-equality-add1
     (rule (⊢ H G)
+          #:seal seal-ctt
           (syntax-parse G
             #:literal-sets (kernel-literals)
             #:literals (add1)
@@ -97,6 +105,7 @@
 
   (define (nat-intro-arith op args)
     (rule (⊢ H G)
+          #:seal seal-ctt
           #:when (and (exact-positive-integer? args)
                       (member op '(+ * -)))
           (syntax-parse G
@@ -114,6 +123,7 @@
 
   (define ind-nat-step-zero
     (rule (⊢ H G)
+          #:seal seal-ctt
           (syntax-parse G
             #:literal-sets (kernel-literals)
             #:literals (ind-Nat)
@@ -127,6 +137,7 @@
   
   (define (nat-elim n)
     (rule (⊢ (and H (at-hyp n Δ (hyp x nat #f) Γ)) G)
+          #:seal seal-ctt
           (syntax-parse nat
             #:literal-sets (kernel-literals)
             [(#%plain-app n)
