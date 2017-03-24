@@ -10,7 +10,8 @@
 
 (provide
  (for-syntax skip fail try then then-l tactic/c subgoal-with-tactic basic-proof-state
-             no-more-tactics-hook make-skip debug)
+             no-more-tactics-hook make-skip debug
+             with-goal match-goal)
  tactic-debug? tactic-debug-hook
  run-script)
 
@@ -149,11 +150,11 @@
     #;(displayln `(emitting ,out-stx))
     (seal-lcfish-test (refine hole out-stx)))
 
-  (define/contract ((fail message) hole make-subgoal)
-    (-> string? tactic/c)
+  (define/contract ((fail message . args) hole make-subgoal)
+    (->* (string?) () #:rest (listof any/c) tactic/c)
     (define h (get-hole-handler hole))
     (define loc (get-hole-loc hole))
-    (h (make-exn:fail:tactics message (current-continuation-marks) hole loc)))
+    (h (make-exn:fail:tactics (apply format message args) (current-continuation-marks) hole loc)))
 
   ;; Transform a make-hole procedure to first replace the current handler. This is used to cut off
   ;; part of the proof tree at the end of a try.
@@ -193,6 +194,30 @@
                                       #,(quasisyntax/loc t #'#,t))))])
        (quasisyntax/loc stx
          (try* tacs/locs ...)))])))
+
+(begin-for-syntax
+  (define/contract ((call-with-goal tac) hole make-subgoal)
+    (-> (-> any/c (or/c tactic/c (promise/c tactic/c)))
+        tactic/c)
+    ((tac (get-hole-goal hole)) hole make-subgoal))
+  
+  (define-syntax (with-goal stx)
+    (syntax-case stx ()
+      [(_ g e ...)
+       (syntax/loc stx
+         (call-with-goal
+          (lambda (g)
+            e ...)))]))
+
+  (define-syntax (match-goal stx)
+    (syntax-case stx ()
+      [(_ (pat body ...) ...)
+       (quasisyntax/loc stx
+         (with-goal g
+           (match g
+             (pat (then body ...))
+             ...
+             (_ (fail "No pattern matched goal")))))])))
 
 (begin-for-syntax
   (define ((debug (message "")) hole make-hole)

@@ -14,7 +14,7 @@
   (begin (tt)))
 (module+ test
   (let-syntax ([tt (lambda (stx) (ensure-lifted-tooltips) (ensure-error-reports) #'(void))])
-  (begin (tt))))
+    (begin (tt))))
 
 (struct Nat () #:transparent)
 
@@ -30,6 +30,11 @@
 
 
 (begin-for-syntax
+  (define-syntax-class Nat-stx
+    #:literal-sets (kernel-literals)
+    (pattern (#%plain-app N:id)
+             #:when (constructs? #'Nat #'N)))
+  
   ;; TODO: computation and equality rules for ind-Nat, add1, +, *,-
   
   (define nat-formation
@@ -144,7 +149,7 @@
              #:when (constructs? #'Nat #'n)
              
              (define base
-               (subgoal (⊢ H (subst1 x (local-expand #'0 'expression null) G))))
+               (subgoal (⊢ H (subst1 x #'(quote 0) G))))
              (define k #'k)
              (define ih #'ih)
              (define step
@@ -198,13 +203,13 @@
                       (Π (Nat) (λ (_)
                                  (Nat)))))
            (then-l
-                 (Π-intro 0 'n)
-                 (nat-equality (Π-intro 0 'm))
-                 (nat-equality))
-                (then-l
-                 (nat-elim 1)
-                 ((assumption 0) nat-intro-add1))
-                (assumption 0))
+            (Π-intro 0 'n)
+            (nat-equality (Π-intro 0 'm))
+            (nat-equality))
+           (then-l
+            (nat-elim 1)
+            ((assumption 0) nat-intro-add1))
+           (assumption 0))
 
   (check-equal? ((plus 2) 5) 7)
 
@@ -223,12 +228,12 @@
                       (Π (Nat) (λ (_)
                                  (Nat)))))
            (Π-intro 0 'n)
-                (try nat-equality skip)
-                (Π-intro 0 'm)
-                (try nat-equality skip)
-                (then-l
-                 (nat-intro-arith '+ 2)
-                 ((assumption 0) (assumption 1))))
+           (try nat-equality skip)
+           (Π-intro 0 'm)
+           (try nat-equality skip)
+           (then-l
+            (nat-intro-arith '+ 2)
+            ((assumption 0) (assumption 1))))
 
   (check-equal? ((another-plus 2) 5) 7)
 
@@ -243,33 +248,67 @@
     (try (then t
                (delay (repeat t)))
          skip))
+
+  (define-syntax (abstract stx)
+    (syntax-parse stx
+      #:literal-sets (kernel-literals)
+      [(_ free-id:id bound-id:id tm:id)
+       #:when (free-identifier=? #'free-id #'tm)
+       #'bound-id]
+      [(_ free-id bound-id (#%plain-app tm ...))
+       (syntax/loc stx
+         (#%plain-app (abstract free-id bound-id tm) ...))]
+      [(_ free-id bound-id (#%plain-lambda (x ...) tm ...))
+       (syntax/loc stx
+         (#%plain-lambda (x ...) (abstract free-id bound-id tm) ...))]
+      [(_ free-id bound-id (tm ...))
+       (syntax/loc stx
+         ((abstract free-id bound-id tm) ...))]
+      [(_ _ _ other) #'other]))
+
+  (define-for-syntax (auto)
+    (match-goal
+     ((⊢ H G)
+      (syntax-parse G
+        [eq:Eq
+         #:with l:Pi #'eq.left
+         #:with r:Pi #'eq.right
+         (Π-in-uni)]
+        [eq:Eq
+         #:with l:Nat-stx #'eq.left
+         #:with r:Nat-stx #'eq.right
+         nat-equality]
+        [foo (fail "Can't auto: ~a" G)]))))
+  
+  (define-for-syntax (unfold-all id)
+    (then (unfold id)
+          (match-goal
+           ((⊢ (cons (hyp _ t _) H) G)
+            (syntax-parse t
+              [eq:Eq
+               (let ([context (with-syntax ([G G] [id id])
+                                (local-expand 
+                                 #'(lambda (x) (abstract id x G))
+                                 'expression
+                                 null))])
+                 (then-l (replace 0 #'eq.type #'eq.left #'eq.right context)
+                         ((assumption 0)
+                          (then (repeat (auto))))))])))))
   
   ;; TODO: requires rewriting with an equality and axiomatization of +, ind-Nat's op-sem
   (theorem plus-is-plus
-           (≡ (Π (Nat) (λ (_)
-                         (Π (Nat) (λ (_)
+           (≡ (Π (Nat) (λ (n1)
+                         (Π (Nat) (λ (n2)
                                     (Nat)))))
               plus
               another-plus)
            (then-l (extensionality 'an-arg)
-                   (todo todo (then-l (nat-elim 0)
-                                      ((then-l
-                                        (unfold #'plus)
-                                        ((replace 0 (local-expand #'(Π (Nat) (λ (_)
-                                                                               (Π (Nat) (λ (_)
-                                                                                          (Nat)))))
-                                                                  'expression null)
-                                                  #'plus
-                                                  (local-expand #'(lambda (n)
-                                                                    (lambda (m)
-                                                                      (ind-Nat
-                                                                       n m (lambda (k ih) (add1 ih)))))
-                                                                'expression null)
-                                                  (local-expand #'(λ (p) (≡ (Π (Nat) (λ (_)
-                                                                                       (Nat)))
-                                                                            (p 0) (another-plus 0)))
-                                                                'expression null)))
-                                        ((assumption 0)
-                                         (repeat (try (Π-in-uni) nat-equality))
-                                         todo))
-                                       todo))))))
+                   ((then (unfold #'plus)
+                          (unfold-all #'plus)
+                          todo)
+                    todo
+                    (then-l (nat-elim 0)
+                            ((then
+                              (unfold-all #'plus)
+                              todo)
+                             todo))))))

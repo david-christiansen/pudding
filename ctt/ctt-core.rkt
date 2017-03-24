@@ -24,7 +24,7 @@
                      "../stx-utils.rkt")
          (for-syntax (for-syntax racket/base syntax/parse)))
 
-(provide (for-syntax Uni Eq
+(provide (for-syntax Uni Eq Pi
                      hyp
                      ⊢
                      at-hyp
@@ -763,7 +763,7 @@
                  (not-applicable (format "replace: Expected ~a, got ~a"
                                          (syntax->datum left-body)
                                          (syntax->datum G))))]
-            [_ (not-applicable "Malformed rewrite context. Must be a single-arg λ.")])))
+            [_ (not-applicable "Malformed rewrite context. Must be a single-arg λ, but was ~a" rewrite-ctxt)])))
 
   (define symmetry
     (rule (⊢ H G)
@@ -1075,7 +1075,7 @@
     (run-script #:goal (Π (Absurd) (λ (_) (Absurd)))
                 (then-l
                  (Π-intro 0 'h)
-                 [absurd-equality (then (debug "here") (assumption 0))])))
+                 [absurd-equality (assumption 0)])))
   (check-true (procedure? absurd→absurd))
 
   (define absurdities-abound
