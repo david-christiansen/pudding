@@ -32,6 +32,7 @@
                      constructs?
                      subst* subst subst1
                      Π-intro extensionality Π-in-uni
+                     λ-equality
                      equality-equality replace symmetry
                      assumption
                      lemma unfold
@@ -186,7 +187,7 @@
     [(#%plain-lambda (arg ...) body ...)
      #`(#%plain-lambda (arg ...) #,@(map (subst* to-subst) (syntax-e #'(body ...))))]
     [(#%expression e)
-     #`(#%expression #,((subst* to-subst) #'e))]
+     ((subst* to-subst) #'e)]
     [other (error (format "subst*: Unsupported syntax: ~a" (syntax->datum #'other)))]))
 
 (define-for-syntax (subst to-subst stx) ((subst* to-subst) stx))
@@ -220,7 +221,9 @@
   (kernel-syntax-case #`(#,stx1 #,stx2) #f
     [((quote e1) (quote e2))
      (equal? (syntax->datum #'e1) (syntax->datum #'e2))]
-    [((#%expression e1) (#%expression e2))
+    [((#%expression e1) e2)
+     (α-equiv? ctxt #'e1 #'e2)]
+    [(e1 (#%expression e2))
      (α-equiv? ctxt #'e1 #'e2)]
     [(x1 x2)
      (and (identifier? #'x1) (identifier? #'x2))
@@ -249,7 +252,9 @@
                      body-list1
                      body-list2))
            #f))]
-    [_ #f]))
+    [_
+     (displayln `(not-alpha ,stx1 ,stx2))
+     #f]))
 
 
 (define-for-syntax (constructs? struct-type-name identifier)
@@ -500,8 +505,8 @@
                 x]
                [else (not-applicable (format "Mismatched assumption ~a. Expected ~a, got ~a"
                                              n
-                                             G
-                                             ty))])])))
+                                             (syntax->datum G)
+                                             (syntax->datum ty)))])])))
 
   (define (lemma the-lemma [name 'lemma])
     (rule (⊢ H G)
@@ -936,7 +941,8 @@
              #:with (#%plain-lambda (z:id) body2) #'eq.right
              (subgoal (⊢ (cons (hyp #'x #'dom #f) H)
                          (local-expand #`(≡ cod #,(subst1 #'y #'x #'body1) #,(subst1 #'z #'x #'body2))
-                                       'expression null)))])))
+                                       'expression null)))]
+            [other (not-applicable)])))
 
   (define (extensionality (var 'arg))
     (rule (⊢ H G)

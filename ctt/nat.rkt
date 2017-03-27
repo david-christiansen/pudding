@@ -74,11 +74,10 @@
           (syntax-parse G
             #:literal-sets (kernel-literals)
             [eq:Eq
-             #:with (#%plain-app n) #'eq.type
+             #:with n:Nat-stx #'eq.type
              #:with (quote j) #'eq.left
              #:with (quote k) #'eq.right
-             #:when (and (constructs? #'Nat #'n)
-                         (exact-nonnegative-integer? (syntax-e #'j))
+             #:when (and (exact-nonnegative-integer? (syntax-e #'j))
                          (exact-nonnegative-integer? (syntax-e #'k))
                          (= (syntax-e #'j) (syntax-e #'k)))
              #'(void)]
@@ -89,8 +88,7 @@
           #:seal seal-ctt
           (syntax-parse G
             #:literal-sets (kernel-literals)
-            [(#%plain-app n:id)
-             #:when (constructs? #'Nat #'n)
+            [n:Nat-stx
              #`(add1 #,(subgoal (⊢ H G)))]
             [_ (not-applicable)])))
 
@@ -101,10 +99,9 @@
             #:literal-sets (kernel-literals)
             #:literals (add1)
             [eq:Eq
-             #:with (#%plain-app nat) #'eq.type
+             #:with nat:Nat-stx #'eq.type
              #:with (#%plain-app add1 j) #'eq.left
              #:with (#%plain-app add1 k) #'eq.right
-             #:when (constructs? #'Nat #'nat)
              (subgoal (⊢ H (local-expand #'(≡ (Nat) j k) 'expression null)))])))
 
 
@@ -115,8 +112,7 @@
                       (member op '(+ * -)))
           (syntax-parse G
             #:literal-sets (kernel-literals)
-            [(#%plain-app nat)
-             #:when (constructs? #'Nat #'nat)
+            [nat:Nat-stx
              (define subgoals
                (for/list ([i (in-range 0 args)])
                  (subgoal (⊢ H G))))
@@ -251,20 +247,25 @@
 
   (define-syntax (abstract stx)
     (syntax-parse stx
-      #:literal-sets (kernel-literals)
-      [(_ free-id:id bound-id:id tm:id)
-       #:when (free-identifier=? #'free-id #'tm)
-       #'bound-id]
-      [(_ free-id bound-id (#%plain-app tm ...))
-       (syntax/loc stx
-         (#%plain-app (abstract free-id bound-id tm) ...))]
-      [(_ free-id bound-id (#%plain-lambda (x ...) tm ...))
-       (syntax/loc stx
-         (#%plain-lambda (x ...) (abstract free-id bound-id tm) ...))]
-      [(_ free-id bound-id (tm ...))
-       (syntax/loc stx
-         ((abstract free-id bound-id tm) ...))]
-      [(_ _ _ other) #'other]))
+      #:datum-literals (quote) ;; WARNING: hack alert
+      ;((quote x) stx)
+      (any 
+       (syntax-parse stx
+         #:literal-sets (kernel-literals)
+         [(_ free-id:id bound-id:id tm:id)
+          #:when (free-identifier=? #'free-id #'tm)
+          #'bound-id]
+         [(_ free-id bound-id (#%plain-app tm ...))
+          (syntax/loc stx
+            (#%plain-app (abstract free-id bound-id tm) ...))]
+         [(_ free-id bound-id (#%plain-lambda (x ...) tm ...))
+          (syntax/loc stx
+            (#%plain-lambda (x ...) (abstract free-id bound-id tm) ...))]
+         [(_ free-id bound-id (quote any)) #'(quote any)]
+         [(_ free-id bound-id (tm ...))
+          (syntax/loc stx
+            ((abstract free-id bound-id tm) ...))]
+         [(_ _ _ other) #'other]))))
 
   (define-for-syntax (auto)
     (match-goal
@@ -306,7 +307,9 @@
                    ((then (unfold #'plus)
                           (unfold-all #'plus)
                           todo)
-                    todo
+                    (then (unfold-all #'another-plus)
+                          (repeat λ-equality)
+                          todo)
                     (then-l (nat-elim 0)
                             ((then
                               (unfold-all #'plus)
