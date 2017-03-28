@@ -11,7 +11,8 @@
 
 (define-generics proof-goal
   (hypotheses proof-goal)
-  (goal proof-goal))
+  (goal proof-goal)
+  (goal->string proof-goal))
 
 (define (proof-goal->string g)
   (define H (hypotheses g))
@@ -19,7 +20,7 @@
   (string-join
    (append
     (for/list ([h (reverse H)]
-               [i (in-range (length H) 0 -1)])
+               [i (in-range (sub1 (length H)) -1 -1)])
       (format "~a. ~a" i (hypothesis->string h)))
-    (list (format "⊢ ~a" (syntax->datum G))))
+    (list (format "⊢ ~a" (goal->string g))))
    "\n"))

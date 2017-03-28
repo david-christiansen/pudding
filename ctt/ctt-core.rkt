@@ -11,7 +11,9 @@
          (for-syntax "unsafe.rkt")
          racket/stxparam
          (for-syntax racket/list
+                     racket/format
                      racket/match
+                     racket/string
                      racket/port
                      racket/contract
                      racket/set
@@ -32,15 +34,16 @@
                      constructs?
                      subst* subst subst1
                      Π-intro extensionality Π-in-uni
-                     λ-equality
+                     λ-equality apply-reduce
                      equality-equality replace symmetry
-                     assumption
+                     assumption assumption-refl
                      lemma unfold
                      todo ADMIT)
          (struct-out Π)
          (struct-out ≡)
          (struct-out U)
          (struct-out Absurd)
+         side-conditions
          run-script theorem)
 
 
@@ -51,27 +54,29 @@
   (begin (tt)))
 (module+ test
   (let-syntax ([tt (lambda (stx) (ensure-lifted-tooltips) (ensure-error-reports) #'(void))])
-  (begin (tt))))
+    (begin (tt))))
 
-(begin-for-syntax  
-  (struct hyp (name type visible?)
+(begin-for-syntax
+  (struct hyp (name type hidden?)
     #:transparent
     #:methods gen:hypothesis
     [(define (hypothesis-id h) (hyp-name h))
      (define (hypothesis-shows h) (hyp-type h))
      (define (hypothesis->string h)
-       (format (if (hyp-visible? h)
-                   "~a : ~a"
-                   "[~a : ~a]")
+       (format (if (hyp-hidden? h)
+                   "[~a : ~a]"
+                   "~a : ~a")
                (syntax->datum (hyp-name h))
-               (syntax->datum (hyp-type h))))])
+               (stx->string (hyp-type h))))])
   (struct ⊢ (hyps goal)
     #:transparent
     #:methods gen:proof-goal
     [(define (hypotheses g)
        (⊢-hyps g))
      (define (goal g)
-       (⊢-goal g))])
+       (⊢-goal g))
+     (define (goal->string g)
+       (stx->string (⊢-goal g)))])
 
   (define/contract (dump-goal g)
     (-> (or/c ⊢?) string?)
@@ -81,10 +86,8 @@
 
   (no-more-tactics-hook (lambda (hole-stx)
                           (define message
-                            (with-output-to-string
-                                (lambda ()
-                                  (printf "Unsolved goal:\n")
-                                  (dump-goal hole-stx))))
+                            (string-append "Unsolved goal:\n"
+                                           (dump-goal (get-hole-goal hole-stx))))
                           (define exn
                             (make-exn:fail:syntax message
                                                   (current-continuation-marks)
@@ -131,12 +134,15 @@
 ;
 ;
 
+(module the-universe racket
+  (provide (all-defined-out))
+  (struct U (level) #:transparent)
+  (struct Absurd () #:transparent)
+  (struct Listof (element-type) #:transparent)
+  (struct Π (domain codomain) #:transparent)
+  (struct ≡ (type left right) #:transparent))
 
-(struct U (level) #:transparent)
-(struct Absurd () #:transparent)
-(struct Listof (element-type) #:transparent)
-(struct Π (domain codomain) #:transparent)
-(struct ≡ (type left right) #:transparent)
+(require (submod "." the-universe))
 
 ;; TODO: Missing types here are Int (replacing Nat), Less, Set, Quotient, Union, Product
 
@@ -172,31 +178,32 @@
 ;               ;;
 ;               ;;
 
+(begin-for-syntax
+  ;; The arguments should be:
+  ;;  1. free-id-table mapping bound identifiers to new syntax objects
+  ;;  2. The syntax object within which to substitute (only supporting some core forms right now)
+  (define/contract ((subst* to-subst) stx)
+    (-> free-id-table? (-> syntax? syntax?))
+    (kernel-syntax-case stx #f
+      [(quote e) #'(quote e)]
+      [x (identifier? #'x)
+         (let ([val (free-id-table-ref to-subst #'x #f)])
+           (if val val #'x))]
+      [(#%plain-app e ...)
+       #`(#%plain-app #,@(map (subst* to-subst) (syntax-e #'(e ...))))]
+      [(#%plain-lambda (arg ...) body ...)
+       #`(#%plain-lambda (arg ...) #,@(map (subst* to-subst) (syntax-e #'(body ...))))]
+      [(#%expression e)
+       ((subst* to-subst) #'e)]
+      [other (error (format "subst*: Unsupported syntax: ~a" (syntax->datum #'other)))]))
 
-;; The arguments should be:
-;;  1. free-id-table mapping bound identifiers to new syntax objects
-;;  2. The syntax object within which to substitute (only supporting some core forms right now)
-(define-for-syntax ((subst* to-subst) stx)
-  (kernel-syntax-case stx #f
-    [(quote e) #'(quote e)]
-    [x (identifier? #'x)
-       (let ([val (free-id-table-ref to-subst #'x #f)])
-         (if val val #'x))]
-    [(#%plain-app e ...)
-     #`(#%plain-app #,@(map (subst* to-subst) (syntax-e #'(e ...))))]
-    [(#%plain-lambda (arg ...) body ...)
-     #`(#%plain-lambda (arg ...) #,@(map (subst* to-subst) (syntax-e #'(body ...))))]
-    [(#%expression e)
-     ((subst* to-subst) #'e)]
-    [other (error (format "subst*: Unsupported syntax: ~a" (syntax->datum #'other)))]))
+  (define (subst to-subst stx) ((subst* to-subst) stx))
 
-(define-for-syntax (subst to-subst stx) ((subst* to-subst) stx))
+  (define (simple-subst from to)
+    (make-immutable-free-id-table (list (cons from to))))
 
-(define-for-syntax (simple-subst from to)
-  (make-immutable-free-id-table (list (cons from to))))
-
-(define-for-syntax (subst1 from to expr)
-  (subst (simple-subst from to) expr))
+  (define (subst1 from to expr)
+    (subst (simple-subst from to) expr)))
   
 
 (define-for-syntax (subst-in-hyp σ h)
@@ -209,52 +216,54 @@
             ([h H])
     (bound-id-set-add ids (hyp-name h))))
 
-;; Arguments:
-;;  ctxt - a set of bound variables
-;;  stx1, stx2 - objectx to compare
-(define-for-syntax (α-equiv? ctxt stx1 stx2)
-  (define (arglist->set xs)
-    (for/fold ([the-set (immutable-bound-id-set)])
-              ([id xs])
-      (bound-id-set-add the-set id)))
+(begin-for-syntax
+  ;; Arguments:
+  ;;  ctxt - a set of bound variables
+  ;;  stx1, stx2 - objectx to compare
+  (define/contract (α-equiv? ctxt stx1 stx2)
+    (-> immutable-bound-id-set? syntax? syntax? boolean?)
+    (define (arglist->set xs)
+      (for/fold ([the-set (immutable-bound-id-set)])
+                ([id xs])
+        (bound-id-set-add the-set id)))
 
-  (kernel-syntax-case #`(#,stx1 #,stx2) #f
-    [((quote e1) (quote e2))
-     (equal? (syntax->datum #'e1) (syntax->datum #'e2))]
-    [((#%expression e1) e2)
-     (α-equiv? ctxt #'e1 #'e2)]
-    [(e1 (#%expression e2))
-     (α-equiv? ctxt #'e1 #'e2)]
-    [(x1 x2)
-     (and (identifier? #'x1) (identifier? #'x2))
-     (begin
-       (cond
-         [(set-member? ctxt #'x1)
-          (bound-identifier=? #'x1 #'x2)]
-         [(set-member? ctxt #'x2)
-          #f]
-         [else (free-identifier=? #'x1 #'x2)]))]
-    [((#%plain-app e1 ...) (#%plain-app e2 ...))
-     (let ([l1 (syntax-e #'(e1 ...))]
-           [l2 (syntax-e #'(e2 ...))])
-       (and (= (length l1) (length l2))
-            (andmap (lambda (x y) (α-equiv? ctxt x y)) l1 l2)))]
-    [((#%plain-lambda (arg1 ...) body1 ...) (#%plain-lambda (arg2 ...) body2 ...))
-     (let ([arglist1 (syntax-e #'(arg1 ...))]
-           [arglist2 (syntax-e #'(arg2 ...))]
-           [body-list1 (syntax-e #'(body1 ...))]
-           [body-list2 (syntax-e #'(body2 ...))])
-       (if (and (= (length arglist1) (length arglist2)))
-           (let ([substitution (make-immutable-free-id-table (map cons arglist2 arglist1))])
-             (andmap (lambda (b1 b2)
-                       (α-equiv? (bound-id-set-union ctxt (arglist->set arglist1))
-                                 b1 (subst substitution b2)))
-                     body-list1
-                     body-list2))
-           #f))]
-    [_
-     (displayln `(not-alpha ,stx1 ,stx2))
-     #f]))
+    (kernel-syntax-case #`(#,stx1 #,stx2) #f
+      [((quote e1) (quote e2))
+       (equal? (syntax->datum #'e1) (syntax->datum #'e2))]
+      [((#%expression e1) e2)
+       (α-equiv? ctxt #'e1 #'e2)]
+      [(e1 (#%expression e2))
+       (α-equiv? ctxt #'e1 #'e2)]
+      [(x1 x2)
+       (and (identifier? #'x1) (identifier? #'x2))
+       (begin
+         (cond
+           [(set-member? ctxt #'x1)
+            (bound-identifier=? #'x1 #'x2)]
+           [(set-member? ctxt #'x2)
+            #f]
+           [else (free-identifier=? #'x1 #'x2)]))]
+      [((#%plain-app e1 ...) (#%plain-app e2 ...))
+       (let ([l1 (syntax-e #'(e1 ...))]
+             [l2 (syntax-e #'(e2 ...))])
+         (and (= (length l1) (length l2))
+              (andmap (lambda (x y) (α-equiv? ctxt x y)) l1 l2)))]
+      [((#%plain-lambda (arg1 ...) body1 ...) (#%plain-lambda (arg2 ...) body2 ...))
+       (let ([arglist1 (syntax-e #'(arg1 ...))]
+             [arglist2 (syntax-e #'(arg2 ...))]
+             [body-list1 (syntax-e #'(body1 ...))]
+             [body-list2 (syntax-e #'(body2 ...))])
+         (if (and (= (length arglist1) (length arglist2)))
+             (let ([substitution (make-immutable-free-id-table (map cons arglist2 arglist1))])
+               (andmap (lambda (b1 b2)
+                         (α-equiv? (bound-id-set-union ctxt (arglist->set arglist1))
+                                   b1 (subst substitution b2)))
+                       body-list1
+                       body-list2))
+             #f))]
+      [_
+       (displayln `(not-alpha ,stx1 ,stx2))
+       #f])))
 
 
 (define-for-syntax (constructs? struct-type-name identifier)
@@ -297,6 +306,24 @@
              #:when (constructs? #'Π #'pi))))
 
 
+(define-for-syntax (stx->string stx)
+  (syntax-parse stx
+    #:literal-sets (kernel-literals)
+    [(#%plain-app e ...)
+     (~a (map stx->string (syntax->list #'(e ...))))]
+    [(#%plain-lambda (x ...) e ...)
+     (format "(λ ~a ~a)"
+             (map stx->string (syntax->list #'(x ...)))
+             (string-join (map stx->string (syntax->list #'(e ...))) " "))]
+    [(quote e) (format "'~a" (syntax->datum #'e))]
+    [p:Pi
+     (format "(Π ~a (λ (~a) ~a)" (stx->string #'p.dom) (stx->string #'p.var) (stx->string #'p.cod))]
+    [(#%expression e) (stx->string #'e)]
+    [x:id
+     #:when (syntax-property #'x 'constructor-for)
+     (~a (syntax-e (syntax-property #'x 'constructor-for)))]
+    [other (~a (syntax->datum #'other))]))
+
 (define-for-syntax (todo hole make-hole)
   ((fail (dump-goal (get-hole-goal hole)))
    hole make-hole))
@@ -304,17 +331,17 @@
 ;; For showing error messages etc
 (define-for-syntax (unexpand stx) stx
   #;(syntax-parse stx
-    #:literal-sets (kernel-literals)
-    [u:Uni
-     #'(U u.level)]
-    [eq:Eq
-     #`(≡ #,(unexpand #'eq.type) #,(unexpand #'eq.left) #,(unexpand #'eq.right))]
-    [(#%plain-app e ...)
-     (datum->syntax stx (map unexpand (syntax->list #'(e ...))))]
-    [(#%plain-lambda (x ...) e ...)
-     #`(λ (x ...)
-         #,(datum->syntax #'(e ...) (map unexpand (syntax->list #'(e ...)))))]
-    [other #'other]))
+      #:literal-sets (kernel-literals)
+      [u:Uni
+       #'(U u.level)]
+      [eq:Eq
+       #`(≡ #,(unexpand #'eq.type) #,(unexpand #'eq.left) #,(unexpand #'eq.right))]
+      [(#%plain-app e ...)
+       (datum->syntax stx (map unexpand (syntax->list #'(e ...))))]
+      [(#%plain-lambda (x ...) e ...)
+       #`(λ (x ...)
+           #,(datum->syntax #'(e ...) (map unexpand (syntax->list #'(e ...)))))]
+      [other #'other]))
 
 
 ;                                                                                  
@@ -446,7 +473,7 @@
          (tac hole make-hole)]
       [g ((fail (string-append "Wrong goal:\n" (dump-goal g)))
           hole make-hole)]))
-)
+  )
 
 
 
@@ -676,9 +703,9 @@
                            [g1 (subgoal (⊢ H (local-expand #`(≡ u #,A #,A) 'expression null)))]
                            [g2 (subgoal (⊢ H A))]
                            [g3 (subgoal (⊢ H A))])
-             #'(side-conditions
-                g1
-                (≡ A g2 g3)))]
+               #'(side-conditions
+                  g1
+                  (≡ A g2 g3)))]
             [other (not-applicable)])))
   (define equality-equality
     (rule (⊢ H G)
@@ -735,7 +762,7 @@
                             ;; but this may also be wrong. Think about it, and ask Sam.
                             (free-identifier=? x #'h1)
                             (free-identifier=? x #'h2)
-                            (let ([Γ-ids (immutable-bound-id-set (map hyp-type Γ))])
+                            (let ([Γ-ids (immutable-bound-id-set (map hyp-name Γ))])
                               (α-equiv? Γ-ids #'in-ty ty)))
                 #'(void)]
                [_ (not-applicable (format "Assumption/goal mismatch ~a. Expected ~a, got ~a."
@@ -807,7 +834,7 @@
                 equal-universe))
   (check-true (void? an-eq-eq))
 
- )
+  )
 
 ;
 ;
@@ -966,7 +993,18 @@
                      var))
                 #,(subgoal (⊢ H (local-expand #'(≡ eq.type eq.left eq.left) 'expression null)))
                 #,(subgoal (⊢ H (local-expand #'(≡ eq.type eq.right eq.right) 'expression null))))])))
-  )
+
+  (define apply-reduce
+    (rule (⊢ H G)
+          #:seal seal-ctt
+          (syntax-parse G
+            #:literal-sets (kernel-literals)
+            (eq:Eq
+             #:with (#%plain-app (#%plain-lambda (x:id) body:expr) arg:expr) #'eq.left
+             (subgoal (⊢ H (local-expand #`(≡ eq.type #,(subst1 #'x #'arg #'body) eq.right)
+                                         'expression
+                                         null))))
+            (_ (not-applicable))))))
 
 (module+ test
   (define U1→U1

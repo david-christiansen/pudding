@@ -122,6 +122,32 @@
                     ['- #'monus])
                 #,@subgoals)])))
 
+  (define nat-equal-arith
+    (rule (⊢ H G)
+          #:seal seal-ctt
+          (define ops (list #'+ #'* #'monus))
+          (syntax-parse G
+            #:literal-sets (kernel-literals)
+            #:literals (+ * monus)
+            [eq:Eq
+             #:with n:Nat-stx #'eq.type
+             #:with (#%plain-app op1:id arg1 ...) #'eq.left
+             #:with (#%plain-app op2:id arg2 ...) #'eq.right
+             #:when (= (length (syntax->list #'(arg1 ...)))
+                       (length (syntax->list #'(arg2 ...))))
+             #:when (and (free-identifier=? #'op1 #'op2))
+             #:with (~or + * monus) #'op1
+             #:with (subgoal ...) (for/list ([j (syntax->list #'(arg1 ...))]
+                                             [k (syntax->list #'(arg2 ...))])
+                                    (subgoal (⊢ H (local-expand #`(≡ (Nat) #,j #,k) 'expression null))))
+             #`(side-conditions subgoal ...
+                (void))]
+            [other
+             (displayln #'other)
+             (not-applicable "Not a Nat arithmetic equality: ~a" (syntax->datum #'other))])))
+
+  
+  
   (define ind-nat-step-zero
     (rule (⊢ H G)
           #:seal seal-ctt
@@ -156,7 +182,9 @@
                         (⊢ (cons (hyp ih (subst1 x n G) #f)
                                  (cons (hyp n nat #f)
                                        H))
-                           (subst1 x #`(add1 #,n) G)))
+                           (local-expand (subst1 x #`(add1 #,n) G)
+                                         'expression
+                                         null)))
                       k
                       ih)))
              
@@ -247,7 +275,7 @@
 
   (define-syntax (abstract stx)
     (syntax-parse stx
-      #:datum-literals (quote) ;; WARNING: hack alert
+      ;#:datum-literals (quote) ;; WARNING: hack alert
       ;((quote x) stx)
       (any 
        (syntax-parse stx
@@ -255,6 +283,9 @@
          [(_ free-id:id bound-id:id tm:id)
           #:when (free-identifier=? #'free-id #'tm)
           #'bound-id]
+         [(_ free-id bound-id (#%expression e))
+          (syntax/loc #'e
+            (abstract free-id bound-id e))]
          [(_ free-id bound-id (#%plain-app tm ...))
           (syntax/loc stx
             (#%plain-app (abstract free-id bound-id tm) ...))]
@@ -304,14 +335,16 @@
               plus
               another-plus)
            (then-l (extensionality 'an-arg)
-                   ((then (unfold #'plus)
-                          (unfold-all #'plus)
+                   ((then (unfold-all #'plus)
                           todo)
                     (then (unfold-all #'another-plus)
-                          (repeat λ-equality)
-                          todo)
-                    (then-l (nat-elim 0)
-                            ((then
-                              (unfold-all #'plus)
-                              todo)
+                          λ-equality
+                          λ-equality
+                          (then-l nat-equal-arith
+                                  ((assumption-refl 0)
+                                   (assumption-refl 1))))
+                    (then-l (then (nat-elim 0)
+                                  (unfold-all #'plus)
+                                  (unfold-all #'another-plus))
+                            ((then apply-reduce symmetry apply-reduce todo)
                              todo))))))
