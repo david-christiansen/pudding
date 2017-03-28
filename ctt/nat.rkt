@@ -6,7 +6,7 @@
          "../rule.rkt"
          (except-in "../lcfish.rkt" run-script)
          (for-syntax "unsafe.rkt")
-         (for-syntax racket/match syntax/parse racket/promise))
+         (for-syntax racket/match syntax/parse racket/promise racket/format))
 
 (module+ test (require rackunit))
 
@@ -146,7 +146,53 @@
              (displayln #'other)
              (not-applicable "Not a Nat arithmetic equality: ~a" (syntax->datum #'other))])))
 
+  ;; TODO: implement fancier normalization
+  (define (normalize-addition stx)
+    (define (flatten-addition tm)
+      (syntax-parse tm
+        #:literal-sets (kernel-literals)
+        #:literals (+)
+        [(#%plain-app + arg ...)
+         (apply append (map flatten-addition (syntax->list #'(arg ...))))]
+        [other (list #'other)]))
+    (define (num-of stx)
+      (syntax-parse stx
+        #:literal-sets (kernel-literals)
+        ((quote n) #:when (number? (syntax-e #'n)) (syntax-e #'n))
+        (n:nat (syntax-e #'n))
+        (_ #f)))
+    (define-values (c xs)
+      (for/fold ([constant 0]
+                 [other '()])
+                ([e (in-list (flatten-addition stx))])
+        (define v (num-of e))
+        (if (number? v)
+            (values (+ constant v) other)
+            (values constant (cons e other)))))
+    (define (compare s1 s2)
+      (string<? (~a (syntax->datum s1)) (~a (syntax->datum s2))))
+    
+    (match (if (= c 0)
+               (sort xs compare)
+               (cons (datum->syntax stx c) (sort xs compare)))
+      ['() #'0]
+      [(list x) (datum->syntax stx x)]
+      [(list-rest x xs) (quasisyntax/loc stx
+                          (#%plain-app + #,x #,@xs))]))
   
+  (define nat-simplify
+    (rule (⊢ H G)
+          #:seal seal-ctt
+          (syntax-parse G
+            [eq:Eq
+             #:with n:Nat-stx #'eq.type
+             (subgoal (⊢ H
+                         (local-expand #`(≡ (Nat)
+                                            #,(normalize-addition #'eq.left)
+                                            #,(normalize-addition #'eq.right))
+                                       'expression
+                                       null)))]
+            [_ (not-applicable)])))
   
   (define ind-nat-step-zero
     (rule (⊢ H G)
@@ -190,7 +236,19 @@
              
              #`(ind-Nat #,x
                         #,base
-                        #,step)]))))
+                        #,step)])))
+
+  (define ind-Nat-0-reduce
+    (rule (⊢ H G)
+          #:seal seal-ctt
+          (syntax-parse G
+            #:literal-sets (kernel-literals)
+            (eq:Eq
+             #:with (#%plain-app ind-Nat (quote 0) base _) #'eq.left
+             (subgoal (⊢ H (local-expand #'(≡ eq.type base eq.right) 'expression null))))
+            (_ (not-applicable))))))
+
+
 
 (module+ test
 
@@ -346,5 +404,12 @@
                     (then-l (then (nat-elim 0)
                                   (unfold-all #'plus)
                                   (unfold-all #'another-plus))
-                            ((then apply-reduce symmetry apply-reduce todo)
+                            ((then apply-reduce
+                                   symmetry
+                                   apply-reduce
+                                   λ-equality
+                                   nat-simplify
+                                   symmetry
+                                   ind-Nat-0-reduce
+                                   (assumption-refl 0))
                              todo))))))
