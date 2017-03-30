@@ -436,6 +436,7 @@
     (match-goal
      ((⊢ H G)
       (syntax-parse G
+        #:literal-sets (kernel-literals)
         [eq:Eq
          #:with l:Pi #'eq.left
          #:with r:Pi #'eq.right
@@ -450,6 +451,10 @@
          #:when (free-identifier=? #'x #'y)
          #:with i:nat (index-where H (lambda (h) (free-identifier=? (hypothesis-id h) #'x)))
          (assumption-refl (syntax-e #'i))]
+        [eq:Eq
+         #:with (quote n:nat) #'eq.left
+         #:with (quote k:nat) #'eq.right
+         nat-equal-const]
         [foo (fail "Can't auto: ~a" G)]))))
 
   (define-for-syntax (call-with-hypothesis-name num tac)
@@ -495,9 +500,8 @@
                     (then (unfold-all #'another-plus)
                           λ-equality
                           λ-equality
-                          (then-l nat-equal-arith
-                                  ((assumption-refl 0)
-                                   (assumption-refl 1))))
+                          (then nat-equal-arith
+                                (auto)))
                     (then-l (then (nat-elim 0)
                                   (unfold-all #'plus)
                                   (unfold-all #'another-plus))
@@ -507,8 +511,8 @@
                                    λ-equality
                                    nat-simplify
                                    symmetry
-                                   (then-l (then ind-Nat-0-reduce nat-simplify )
-                                           (nat-equal-const (assumption-refl 0)))
+                                   (then (then ind-Nat-0-reduce nat-simplify )
+                                         (auto))
                                    (assumption-refl 0))
                              (then apply-reduce
                                    symmetry
@@ -534,8 +538,7 @@
                                                     λ-equality
                                                     nat-simplify
                                                     nat-equal-arith
-                                                    (try (assumption-refl 0)
-                                                         nat-equal-const))
+                                                    (auto))
                                               todo))
                                             )))
                              ))))))
