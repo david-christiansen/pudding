@@ -221,7 +221,18 @@
                 #,(subgoal (⊢ H (local-expand #'(≡ eq.type base eq.right) 'expression null)))
                 #,(subgoal (⊢ H (local-expand #'(≡ (Nat) n 0) 'expression null)))
                 (void))])))
-  
+
+  (define add1-equality
+    (rule (⊢ H G)
+          #:seal seal-ctt
+          (syntax-parse G
+            #:literal-sets (kernel-literals)
+            #:literals (add1)
+            [eq:Eq
+             #:with n:Nat-stx #'eq.type
+             #:with (#%plain-app add1 j) #'eq.left
+             #:with (#%plain-app add1 k) #'eq.right
+             (subgoal (⊢ H (local-expand #'(≡ (Nat) j k) 'expression null)))])))
   
   (define (nat-elim n)
     (rule (⊢ (and H (at-hyp n Δ (hyp x nat #f) Γ)) G)
@@ -462,6 +473,16 @@
      ((⊢ H G)
       #:when (>= (length H) num)
       (tac (hypothesis-id (list-ref H num))))))
+
+  (define-for-syntax (call-with-hypothesis-names . args)
+    (match args
+      [(list num ... tac)
+       (match-goal
+        ((⊢ H G)
+         (apply tac
+                (for/list ([n num])
+                  (hypothesis-id (list-ref H n))))))]
+      [_ (fail "Bad call-with-hypothesis-names use")]))
   
   (define-for-syntax (unfold-all id)
     (then (unfold id)
@@ -556,4 +577,37 @@
                                                                             'expression null))))))
                                                ((then apply-reduce λ-equality nat-simplify nat-equal-arith (auto))
                                                 (then (Π-in-uni) nat-equality)
-                                                (then apply-reduce todo))))))))))))))
+                                                (then apply-reduce
+                                                      (then-l
+                                                       (call-with-hypothesis-name
+                                                        1
+                                                        (lambda (n2-name)
+                                                          (call-with-hypothesis-name
+                                                           5
+                                                           (lambda (k-name)
+                                                             (cut 0 (local-expand #`(≡ (Nat)
+                                                                                       (+ #,n2-name (add1 #,k-name))
+                                                                                       (add1 (+ #,n2-name #,k-name)))
+                                                                                  'expression
+                                                                                  null))))))
+                                                       ((then nat-simplify nat-equal-arith (auto))
+                                                        (call-with-hypothesis-names
+                                                         2 6
+                                                         (lambda (n2-name k-name)
+                                                           (then-l
+                                                            (replace 0
+                                                                     (local-expand #'(Nat) 'expression null)
+                                                                     (local-expand #`(+ #,n2-name (add1 #,k-name)) 'expression null)
+                                                                     (local-expand #`(add1 (+ #,n2-name #,k-name)) 'expression null)
+                                                                     (local-expand #`(lambda (hole)
+                                                                                       (≡ (Nat)
+                                                                                          (add1 (ind-Nat #,k-name
+                                                                                                         #,n2-name
+                                                                                                         (lambda (k) (lambda (ih) (add1 ih)))))
+                                                                                          hole))
+                                                                                   'expression
+                                                                                   null))
+                                                            ((assumption 0)
+                                                             nat-equality
+                                                             (then add1-equality
+                                                                   todo)))))))))))))))))))))
