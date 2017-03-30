@@ -5,8 +5,9 @@
          "../lift-errors.rkt"
          "../rule.rkt"
          (except-in "../lcfish.rkt" run-script)
-         (for-syntax "unsafe.rkt")
-         (for-syntax racket/match syntax/parse racket/promise racket/format))
+         (for-syntax "unsafe.rkt" "../goal.rkt")
+         (for-syntax racket/match syntax/parse racket/promise racket/format racket/list
+                     racket/syntax syntax/id-set))
 
 (module+ test (require rackunit))
 
@@ -21,7 +22,7 @@
 (define (ind-Nat target base step)
   (if (zero? target)
       base
-      (step (sub1 target) (ind-Nat (sub1 target) base step))))
+      ((step (sub1 target)) (ind-Nat (sub1 target) base step))))
 
 
 (define (monus . args)
@@ -122,6 +123,19 @@
                     ['- #'monus])
                 #,@subgoals)])))
 
+  (define nat-equal-const
+    (rule (⊢ H G)
+          #:seal seal-ctt
+          (syntax-parse G
+            #:literal-sets (kernel-literals)
+            [eq:Eq
+             #:with n:Nat-stx #'eq.type
+             #:with (quote j:nat) #'eq.left
+             #:with (quote k:nat) #'eq.right
+             #:when (= (syntax-e #'j) (syntax-e #'k))
+             #'(void)]
+            [_ (not-applicable)])))
+  
   (define nat-equal-arith
     (rule (⊢ H G)
           #:seal seal-ctt
@@ -151,7 +165,8 @@
     (define (flatten-addition tm)
       (syntax-parse tm
         #:literal-sets (kernel-literals)
-        #:literals (+)
+        #:literals (+ add1)
+        ((#%plain-app add1 n) (cons #''1 (flatten-addition #'n)))
         [(#%plain-app + arg ...)
          (apply append (map flatten-addition (syntax->list #'(arg ...))))]
         [other (list #'other)]))
@@ -221,32 +236,93 @@
              (define k #'k)
              (define ih #'ih)
              (define step
-               #`(λ (#,k #,ih)
-                   #,(make-assumption-hole
-                      (lambda (g) (subgoal g))
-                      (lambda (n ih)
-                        (⊢ (cons (hyp ih (subst1 x n G) #f)
-                                 (cons (hyp n nat #f)
-                                       H))
-                           (local-expand (subst1 x #`(add1 #,n) G)
-                                         'expression
-                                         null)))
+               #`(λ (#,k)
+                   (λ (#,ih)
+                     #,(make-assumption-hole
+                        (lambda (g) (subgoal g))
+                        (lambda (n ih)
+                          (⊢ (cons (hyp ih (subst1 x n G) #f)
+                                   (cons (hyp n nat #f)
+                                         H))
+                             (local-expand (subst1 x #`(add1 #,n) G)
+                                           'expression
+                                           null)))
                       k
-                      ih)))
+                      ih))))
              
              #`(ind-Nat #,x
                         #,base
                         #,step)])))
 
+
+  (define (ind-Nat-equality motive)
+    (rule (⊢ H G)
+          #:seal seal-ctt
+          (syntax-parse (local-expand motive 'expression null)
+            #:literal-sets (kernel-literals)
+            [(#%plain-lambda (motive-var:id) motive-type)
+             (syntax-parse G
+               #:literal-sets (kernel-literals)
+               #:literals (ind-Nat)
+               [eq:Eq
+                #:with (#%plain-app ind-Nat target-l base-l step-l) #'eq.left
+                #:with (#%plain-app ind-Nat target-r base-r step-r) #'eq.right
+                #:when (α-equiv?/hyps H
+                                      #'eq.type
+                                      (subst1 #'motive-var #'target-l #'motive-type))
+                (with-syntax* ([target= (subgoal (⊢ H (local-expand #'(≡ (Nat) target-l target-r)
+                                                                    'expression
+                                                                    null)))]
+                               [base-type (subst1 #'motive-var #'0 #'motive-type)]
+                               [base= (subgoal (⊢ H (local-expand #'(≡ base-type base-l base-r)
+                                                                  'expression
+                                                                  null)))]
+                               [step-type #`(Π (Nat)
+                                               (lambda (n)
+                                                 (Π #,(subst1 #'motive-var #'n #'motive-type)
+                                                    (lambda (ih)
+                                                      #,(subst1 #'motive-var #'(add1 n) #'motive-type)))))]
+                               [step= (subgoal (⊢ H (local-expand #'(≡ step-type step-l step-r)
+                                                                  'expression
+                                                                  null)))])
+                  #'(side-conditions target= base= step= (void)))])]
+            [_ (not-applicable "Bad motive ~a" motive)])))
+  
   (define ind-Nat-0-reduce
     (rule (⊢ H G)
           #:seal seal-ctt
           (syntax-parse G
             #:literal-sets (kernel-literals)
             (eq:Eq
-             #:with (#%plain-app ind-Nat (quote 0) base _) #'eq.left
-             (subgoal (⊢ H (local-expand #'(≡ eq.type base eq.right) 'expression null))))
-            (_ (not-applicable))))))
+             #:with (#%plain-app ind-Nat tgt base _) #'eq.left
+             (with-syntax ([its-zero (subgoal (⊢ H (local-expand #'(≡ (Nat) tgt 0)
+                                                                 'expression
+                                                                 null)))]
+                           [real-goal (subgoal (⊢ H (local-expand #'(≡ eq.type base eq.right)
+                                                                  'expression
+                                                                  null)))])
+               #'(side-conditions its-zero real-goal (void))))
+            (_ (not-applicable)))))
+
+  (define (ind-Nat-add1-reduce k)
+    (rule (⊢ H G)
+          #:seal seal-ctt
+          (syntax-parse G
+            #:literal-sets (kernel-literals)
+            #:literals (ind-Nat)
+            [eq:Eq
+             #:with (#%plain-app ind-Nat n base step) #'eq.left
+             (with-syntax ([n-add1 (subgoal (⊢ H (local-expand #`(≡ (Nat) n (add1 #,k))
+                                                               'expression
+                                                               null)))]
+                           [the-step (subgoal (⊢ H (local-expand #`(≡ eq.type
+                                                                      (#%plain-app (#%plain-app step
+                                                                                                #,k)
+                                                                                   (ind-Nat #,k base step))
+                                                                      eq.right)
+                                                                 'expression
+                                                                 null)))])
+               #'(side-conditions n-add1 the-step (void)))]))))
 
 
 
@@ -368,7 +444,19 @@
          #:with l:Nat-stx #'eq.left
          #:with r:Nat-stx #'eq.right
          nat-equality]
+        [eq:Eq
+         #:with x:id #'eq.left
+         #:with y:id #'eq.right
+         #:when (free-identifier=? #'x #'y)
+         #:with i:nat (index-where H (lambda (h) (free-identifier=? (hypothesis-id h) #'x)))
+         (assumption-refl (syntax-e #'i))]
         [foo (fail "Can't auto: ~a" G)]))))
+
+  (define-for-syntax (call-with-hypothesis-name num tac)
+    (match-goal
+     ((⊢ H G)
+      #:when (>= (length H) num)
+      (tac (hypothesis-id (list-ref H num))))))
   
   (define-for-syntax (unfold-all id)
     (then (unfold id)
@@ -394,7 +482,16 @@
               another-plus)
            (then-l (extensionality 'an-arg)
                    ((then (unfold-all #'plus)
-                          todo)
+                          λ-equality
+                          λ-equality
+                          (then-l (ind-Nat-equality (local-expand #'(lambda (_) (Nat)) 'expression null))
+                                  ((auto)
+                                   (auto)
+                                   (then λ-equality λ-equality
+                                         nat-simplify
+                                         nat-equal-arith
+                                         (try (assumption-refl 0)
+                                              nat-equal-const)))))
                     (then (unfold-all #'another-plus)
                           λ-equality
                           λ-equality
@@ -410,6 +507,35 @@
                                    λ-equality
                                    nat-simplify
                                    symmetry
-                                   ind-Nat-0-reduce
+                                   (then-l (then ind-Nat-0-reduce nat-simplify )
+                                           (nat-equal-const (assumption-refl 0)))
                                    (assumption-refl 0))
-                             todo))))))
+                             (then apply-reduce
+                                   symmetry
+                                   apply-reduce
+                                   symmetry
+                                   λ-equality
+                                   (then-l (call-with-hypothesis-name 4 ind-Nat-add1-reduce)
+                                           ((then nat-simplify
+                                                  nat-equal-arith
+                                                  (try nat-equal-const
+                                                       (assumption-refl 4)))
+                                            (then-l
+                                             (call-with-hypothesis-name
+                                              4
+                                              (lambda (k-name)
+                                                (cut 0
+                                                     (local-expand #`(≡ (Π (Nat) (lambda (n) (Nat)))
+                                                                        ((λ (k) (λ (ih) (add1 ih))) #,k-name)
+                                                                        (λ (ih) (add1 ih)))
+                                                                   'expression
+                                                                   null))))
+                                             ((then apply-reduce
+                                                    λ-equality
+                                                    nat-simplify
+                                                    nat-equal-arith
+                                                    (try (assumption-refl 0)
+                                                         nat-equal-const))
+                                              todo))
+                                            )))
+                             ))))))

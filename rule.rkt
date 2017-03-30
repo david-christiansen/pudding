@@ -1,6 +1,6 @@
 #lang racket/base
 
-(require (for-syntax racket/base racket/match "engine/proof-state.rkt"
+(require (for-syntax racket/base racket/match "engine/proof-state.rkt" "goal.rkt"
                      (for-syntax racket/base syntax/parse))
           "lcfish.rkt"
          racket/match (for-syntax racket/stxparam) racket/control)
@@ -46,7 +46,9 @@
                                                  (current-continuation-marks)))]
                                       [(_)
                                        #'(raise (make-exn:fail:this-rule
-                                                 (format "Not applicable: ~a" (get-hole-goal hole))
+                                                 (string-append
+                                                  "Not applicable:\n"
+                                                  (proof-goal->string (get-hole-goal hole)))
                                                  (current-continuation-marks)))]))])
              (with-handlers ([exn:fail:this-rule?
                               (lambda (e)

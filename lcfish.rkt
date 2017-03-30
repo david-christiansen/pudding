@@ -211,13 +211,16 @@
 
   (define-syntax (match-goal stx)
     (syntax-case stx ()
-      [(_ (pat body ...) ...)
+      [(_ (pat #:when w body ...) ...)
        (quasisyntax/loc stx
          (with-goal g
            (match g
-             (pat (then body ...))
+             (pat #:when w (then body ...))
              ...
-             (_ (fail "No pattern matched goal")))))])))
+             (_ (fail "No pattern matched goal")))))]
+      [(_ (pat body ...) ...)
+       (syntax/loc stx
+         (match-goal (pat #:when #t body ...) ...))])))
 
 (begin-for-syntax
   (define ((debug (message "")) hole make-hole)

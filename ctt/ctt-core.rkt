@@ -30,6 +30,7 @@
                      hyp
                      ⊢
                      at-hyp
+                     α-equiv?/hyps
                      make-assumption-hole
                      constructs?
                      subst* subst subst1
@@ -37,6 +38,7 @@
                      λ-equality apply-reduce
                      equality-equality replace symmetry
                      assumption assumption-refl
+                     cut
                      lemma unfold
                      todo ADMIT)
          (struct-out Π)
@@ -184,15 +186,17 @@
   ;;  2. The syntax object within which to substitute (only supporting some core forms right now)
   (define/contract ((subst* to-subst) stx)
     (-> free-id-table? (-> syntax? syntax?))
-    (kernel-syntax-case stx #f
+    (syntax-parse stx
+      #:literal-sets (kernel-literals)
       [(quote e) #'(quote e)]
-      [x (identifier? #'x)
-         (let ([val (free-id-table-ref to-subst #'x #f)])
-           (if val val #'x))]
-      [(#%plain-app e ...)
-       #`(#%plain-app #,@(map (subst* to-subst) (syntax-e #'(e ...))))]
-      [(#%plain-lambda (arg ...) body ...)
-       #`(#%plain-lambda (arg ...) #,@(map (subst* to-subst) (syntax-e #'(body ...))))]
+      [x
+       #:when (identifier? #'x)
+       (let ([val (free-id-table-ref to-subst #'x #f)])
+         (if val val #'x))]
+      [((~and ap #%plain-app) e ...)
+       #`(ap #,@(map (subst* to-subst) (syntax-e #'(e ...))))]
+      [((~and lam #%plain-lambda) (arg ...) body ...)
+       #`(lam (arg ...) #,@(map (subst* to-subst) (syntax-e #'(body ...))))]
       [(#%expression e)
        ((subst* to-subst) #'e)]
       [other (error (format "subst*: Unsupported syntax: ~a" (syntax->datum #'other)))]))
@@ -265,6 +269,12 @@
        (displayln `(not-alpha ,stx1 ,stx2))
        #f])))
 
+(define-for-syntax (α-equiv?/hyps H a b)
+  (define binders
+    (for/fold ([the-set (immutable-bound-id-set)])
+              ([h H])
+      (bound-id-set-add the-set (hyp-name h))))
+  (α-equiv? binders a b))
 
 (define-for-syntax (constructs? struct-type-name identifier)
   ;; this seems wrong, but the struct transformer binding's notion of constructor is not
@@ -572,6 +582,19 @@
                                          name))]
             [_ (not-applicable (format "Not a theorem: ~a. Got: ~a" the-lemma thm))])))
 
+  (define (cut i T (name 'H))
+    (rule (⊢ H G)
+          #:seal seal-ctt
+          (define-values (Δ Γ) (split-at H i))
+          (with-syntax ([new-H (subgoal (⊢ Γ T))])
+            #`((lambda (#,name)
+                 #,(make-assumption-hole (lambda (g) (subgoal g))
+                                         (lambda (good-name)
+                                           (⊢ (append Δ (list (hyp good-name T #f)) Γ)
+                                              G))
+                                         name))
+               new-H))))
+  
   (define ADMIT
     (rule (⊢ H G)
           #:seal seal-ctt
@@ -756,7 +779,7 @@
                H)
              (syntax-parse G
                #:literal-sets (kernel-literals)
-               [(#%plain-app eq in-ty h1 h2)
+               [(#%plain-app eq in-ty h1:id h2:id)
                 #:when (and (constructs? #'≡ #'eq)
                             ;; TODO: this doesn't give the expected answer with bound-id=?,
                             ;; but this may also be wrong. Think about it, and ask Sam.
@@ -966,9 +989,15 @@
              #:with (#%plain-app pi dom (#%plain-lambda (x:id) cod)) #'eq.type
              #:with (#%plain-lambda (y:id) body1) #'eq.left
              #:with (#%plain-lambda (z:id) body2) #'eq.right
-             (subgoal (⊢ (cons (hyp #'x #'dom #f) H)
-                         (local-expand #`(≡ cod #,(subst1 #'y #'x #'body1) #,(subst1 #'z #'x #'body2))
-                                       'expression null)))]
+             #`(let ((x (void)))
+                 #,(make-assumption-hole (lambda (g) (subgoal g))
+                                         (lambda (the-var)
+                                           (⊢ (cons (hyp the-var #'dom #f) H)
+                                              (local-expand #`(≡ cod
+                                                                 #,(subst1 #'y the-var #'body1)
+                                                                 #,(subst1 #'z the-var #'body2))
+                                                            'expression null)))
+                                         #'x))]
             [other (not-applicable)])))
 
   (define (extensionality (var 'arg))
@@ -1000,8 +1029,14 @@
           (syntax-parse G
             #:literal-sets (kernel-literals)
             (eq:Eq
-             #:with (#%plain-app (#%plain-lambda (x:id) body:expr) arg:expr) #'eq.left
-             (subgoal (⊢ H (local-expand #`(≡ eq.type #,(subst1 #'x #'arg #'body) eq.right)
+             #:with (#%plain-app (#%plain-lambda (x:id ...) body:expr) arg:expr ...) #'eq.left
+             #:when (= (length (syntax->list #'(x ...))) (length (syntax->list #'(arg ...))))
+             (subgoal (⊢ H (local-expand #`(≡ eq.type
+                                              #,(subst (make-immutable-free-id-table
+                                                        (map syntax-e
+                                                             (syntax->list #'((x . arg) ...))))
+                                                       #'body)
+                                              eq.right)
                                          'expression
                                          null))))
             (_ (not-applicable))))))
