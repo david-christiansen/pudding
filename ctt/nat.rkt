@@ -455,7 +455,7 @@
          #:with (quote n:nat) #'eq.left
          #:with (quote k:nat) #'eq.right
          nat-equal-const]
-        [foo (fail "Can't auto: ~a" G)]))))
+        [foo (fail "Can't auto: ~a" (syntax->datum G))]))))
 
   (define-for-syntax (call-with-hypothesis-name num tac)
     (match-goal
@@ -495,8 +495,7 @@
                                    (then λ-equality λ-equality
                                          nat-simplify
                                          nat-equal-arith
-                                         (try (assumption-refl 0)
-                                              nat-equal-const)))))
+                                         (auto)))))
                     (then (unfold-all #'another-plus)
                           λ-equality
                           λ-equality
@@ -511,7 +510,7 @@
                                    λ-equality
                                    nat-simplify
                                    symmetry
-                                   (then (then ind-Nat-0-reduce nat-simplify )
+                                   (then ind-Nat-0-reduce nat-simplify
                                          (auto))
                                    (assumption-refl 0))
                              (then apply-reduce
@@ -539,6 +538,22 @@
                                                     nat-simplify
                                                     nat-equal-arith
                                                     (auto))
-                                              todo))
-                                            )))
-                             ))))))
+                                              (then-l
+                                               (call-with-hypothesis-name
+                                                5
+                                                (lambda (k-name)
+                                                  (call-with-hypothesis-name
+                                                   1
+                                                   (lambda (n2-name)
+                                                     (replace 0
+                                                              (local-expand #'(Π (Nat) (λ (n) (Nat))) 'expression null)
+                                                              (local-expand #`((λ (k) (λ (ih) (add1 ih))) #,k-name) 'expression null)
+                                                              (local-expand #'(λ (ih) (add1 ih)) 'expression null)
+                                                              (local-expand #`(lambda (hole)
+                                                                                (≡ (Nat)
+                                                                                   (hole (ind-Nat #,k-name #,n2-name (λ (k) (λ (ih) (add1 ih)))))
+                                                                                   (+ #,n2-name (add1 #,k-name))))
+                                                                            'expression null))))))
+                                               ((then apply-reduce λ-equality nat-simplify nat-equal-arith (auto))
+                                                (then (Π-in-uni) nat-equality)
+                                                (then apply-reduce todo))))))))))))))
