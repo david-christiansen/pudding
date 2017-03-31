@@ -230,21 +230,22 @@
       (for/fold ([the-set (immutable-bound-id-set)])
                 ([id xs])
         (bound-id-set-add the-set id)))
-
-    (kernel-syntax-case #`(#,stx1 #,stx2) #f
+    (syntax-parse #`(#,stx1 #,stx2)
+      #:literal-sets (kernel-literals)
       [((quote e1) (quote e2))
        (equal? (syntax->datum #'e1) (syntax->datum #'e2))]
       [((#%expression e1) e2)
        (α-equiv? ctxt #'e1 #'e2)]
       [(e1 (#%expression e2))
        (α-equiv? ctxt #'e1 #'e2)]
-      [(x1 x2)
-       (and (identifier? #'x1) (identifier? #'x2))
+      [(x1:id x2:id)
        (begin
          (cond
+           ;;;TODO: Ask Sam about what should be bound vs free here
            [(set-member? ctxt #'x1)
-            (bound-identifier=? #'x1 #'x2)]
+            (free-identifier=? #'x1 #'x2)]
            [(set-member? ctxt #'x2)
+            (displayln `(nope ,#'x1 ,#'x2))
             #f]
            [else (free-identifier=? #'x1 #'x2)]))]
       [((#%plain-app e1 ...) (#%plain-app e2 ...))
@@ -266,7 +267,6 @@
                        body-list2))
              #f))]
       [_
-       (displayln `(not-alpha ,stx1 ,stx2))
        #f])))
 
 (define-for-syntax (α-equiv?/hyps H a b)
@@ -534,16 +534,13 @@
              (cond
                [hidden?
                 (not-applicable (format "Assumption ~a is hidden" n))]
-               [(α-equiv? (immutable-bound-id-set (for/fold ([the-set (immutable-bound-id-set)])
-                                                            ([h Γ])
-                                                    (bound-id-set-add the-set (hyp-name h))))
-                          ty
-                          G)
+               [(α-equiv?/hyps H ty G)
                 x]
-               [else (not-applicable (format "Mismatched assumption ~a. Expected ~a, got ~a"
+               [else
+                (not-applicable (format "Mismatched assumption ~a. Expected ~a, got ~a"
                                              n
-                                             (syntax->datum G)
-                                             (syntax->datum ty)))])])))
+                                             (stx->string G)
+                                             (stx->string ty)))])])))
 
   (define (lemma the-lemma [name 'lemma])
     (rule (⊢ H G)

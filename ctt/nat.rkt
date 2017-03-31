@@ -610,4 +610,102 @@
                                                             ((assumption 0)
                                                              nat-equality
                                                              (then add1-equality
-                                                                   todo)))))))))))))))))))))
+                                                                   (then-l (cut 0 (local-expand
+                                                                                   #`(≡ (Nat)
+                                                                                        (+ #,n2-name #,k-name)
+                                                                                        ((another-plus #,n2-name) #,k-name))
+                                                                                   'expression
+                                                                                   null))
+                                                                           ((then (unfold-all #'another-plus)
+                                                                                  symmetry
+                                                                                  (then-l (cut 0 (local-expand
+                                                                                                  #`(≡ (Π (Nat) (lambda (n) (Nat)))
+                                                                                                       ((λ (n) (λ (m) (+ m n))) #,n2-name)
+                                                                                                       (λ (m) (+ m #,n2-name)))
+                                                                                                  'expression
+                                                                                                  null))
+                                                                                          ((then apply-reduce
+                                                                                                 λ-equality
+                                                                                                 nat-equal-arith
+                                                                                                 (auto))
+                                                                                           (then-l (replace 0
+                                                                                                            (local-expand #'(Π (Nat) (λ (n) (Nat))) 'expression null)
+                                                                                                            (local-expand #`((λ (n) (λ (m) (+ m n))) #,n2-name) 'expression null)
+                                                                                                            (local-expand #`(λ (m) (+ m #,n2-name)) 'expression null)
+                                                                                                            (local-expand #`(λ (here)
+                                                                                                                              (≡ (Nat) (here #,k-name) (+ #,n2-name #,k-name)))
+                                                                                                                          'expression null))
+                                                                                                   ((assumption 0)
+                                                                                                    (repeat (auto))
+                                                                                                    apply-reduce
+                                                                                                    todo))))
+                                                                                  
+                                                                                  (then nat-simplify nat-equal-arith (auto)))
+                                                                            (then-l (cut 0 (local-expand #`(≡ (Nat)
+                                                                                                              (ind-Nat #,k-name #,n2-name (λ (k) (λ (ih) (add1 ih))))
+                                                                                                              ((plus #,k-name) #,n2-name))
+                                                                                                         'expression null)
+                                                                                         'refold)
+                                                                                    ((then (unfold-all #'plus)
+                                                                                           symmetry
+                                                                                           (then-l (cut 0 (local-expand #`(≡ (Π (Nat) (lambda (n) (Nat)))
+                                                                                                                             ((λ (n) (λ (m) (ind-Nat n m (λ (k) (λ (ih) (add1 ih)))))) #,k-name)
+                                                                                                                             (λ (m) (ind-Nat #,k-name m (λ (k) (λ (ih) (add1 ih))))))
+                                                                                                                        'expression
+                                                                                                                        null))
+                                                                                                   ((then apply-reduce
+                                                                                                          λ-equality
+                                                                                                          (ind-Nat-equality (local-expand #'(lambda (_) (Nat)) 'expression null))
+                                                                                                          (repeat (try (auto) λ-equality add1-equality)))
+                                                                                                    (then-l (replace 0
+                                                                                                                     (local-expand #'(Π (Nat) (lambda (n) (Nat))) 'expression null)
+                                                                                                                     (local-expand #`((λ (n) (λ (m) (ind-Nat n m (λ (k) (λ (ih) (add1 ih))))))
+                                                                                                                                      #,k-name)
+                                                                                                                                   'expression null)
+                                                                                                                     (local-expand #`(λ (m) (ind-Nat #,k-name m (λ (k) (λ (ih) (add1 ih)))))
+                                                                                                                                   'expression null)
+                                                                                                                     (local-expand #`(lambda (here)
+                                                                                                                                       (≡ (Nat)
+                                                                                                                                          (here #,n2-name)
+                                                                                                                                          (ind-Nat #,k-name #,n2-name
+                                                                                                                                                   (λ (k) (λ (ih) (add1 ih))))))
+                                                                                                                                   'expression null)
+                                                                                                                     )
+                                                                                                     ((assumption 0)
+                                                                                                      (repeat (auto))
+                                                                                                      (then apply-reduce
+                                                                                                            (ind-Nat-equality (local-expand #'(lambda (_) (Nat)) 'expression null))
+                                                                                                            (repeat (try (auto) λ-equality add1-equality))
+                                                                                                            )))))
+                                                                                           )
+                                                                                     (then-l (replace 0 (local-expand #'(Nat) 'expression null)
+                                                                                                      (local-expand #`(ind-Nat #,k-name #,n2-name (λ (k) (λ (ih) (add1 ih)))) 'expression null)
+                                                                                                      (local-expand #`((plus #,k-name) #,n2-name) 'expression null)
+                                                                                                      (local-expand #`(lambda (here)
+                                                                                                                        (≡ (Nat) here (+ #,n2-name #,k-name)))
+                                                                                                                    'expression null))
+                                                                                             ((assumption 0)
+                                                                                              (auto)
+                                                                                              (then-l (replace 0
+                                                                                                             (local-expand #'(Π (Nat) (λ (n) (Nat))) 'expression null)
+                                                                                                             (local-expand #`(plus #,k-name) 'expression null)
+                                                                                                             (local-expand #`(another-plus #,k-name) 'expression null)
+                                                                                                             (local-expand #`(lambda (here)
+                                                                                                                               (≡ (Nat) (here #,n2-name) (+ #,n2-name #,k-name)))
+                                                                                                                           'expression null))
+                                                                                                      ((assumption 7)
+                                                                                                       (repeat (auto))
+                                                                                                       (then symmetry
+                                                                                                             (unfold-all #'another-plus)
+                                                                                                             (then-l (replace 0
+                                                                                                                              (local-expand #'(Π (Nat) (lambda (n) (Nat))) 'expression null)
+                                                                                                                              (local-expand #`((λ (n) (λ (m) (+ m n))) #,k-name) 'expression null)
+                                                                                                                              (local-expand #`(λ (m) (+ m #,k-name)) 'expression null)
+                                                                                                                              (local-expand #`(lambda (here)
+                                                                                                                                               (≡ (Nat) (+ #,n2-name #,k-name) (here #,n2-name)))
+                                                                                                                                            'expression
+                                                                                                                                            null))
+                                                                                                                     ((then apply-reduce (repeat (auto)))
+                                                                                                                      (repeat (auto))
+                                                                                                                      (then symmetry apply-reduce nat-equal-arith (auto))))
+                                                                                                             (then λ-equality nat-equal-arith (auto))))))))))))))))))))))))))))))))
