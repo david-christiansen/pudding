@@ -3,7 +3,7 @@
 (require (for-syntax racket/base racket/contract racket/promise
                      "proof-state.rkt" "refinement.rkt" "../seal.rkt"))
 
-(provide hole
+(provide hole 
          (for-syntax hole? tactic/c init-hole tactic-info-hook tactic/loc))
 
 (define-for-syntax (hole? stx)
@@ -46,9 +46,8 @@
     loc)
    tactic))
 
+
 (define-for-syntax (tactic/loc tac loc)
-  (procedure-rename
-   (lambda (hole make-subgoal)
-     ((force tac) (set-loc hole loc) make-subgoal))
-   `tactic/loc))
+  (lambda (hole make-subgoal)
+    ((force tac) (set-loc hole loc) make-subgoal)))
 

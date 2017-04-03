@@ -37,7 +37,7 @@
                      Π-intro extensionality Π-in-uni
                      λ-equality apply-reduce
                      equality-equality replace symmetry
-                     assumption assumption-refl
+                     assumption assumption-refl thin
                      cut
                      lemma unfold
                      todo ADMIT)
@@ -520,6 +520,11 @@
                    before
                    (cons this-hyp after)))])))
 
+  (define (thin i)
+    (rule (⊢ (at-hyp i Δ _ Γ) G)
+          #:seal seal-ctt
+          (subgoal (⊢ (append Δ Γ) G))))
+  
   (define (assumption n)
     (rule (⊢ H G) #:seal seal-ctt
           (define assumptions (length H))

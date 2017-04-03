@@ -9,9 +9,9 @@
          "engine/hole.rkt")
 
 (provide
- (for-syntax skip fail try then then-l tactic/c subgoal-with-tactic basic-proof-state
+ (for-syntax skip fail try try* then then* then-l then-l* tactic/c subgoal-with-tactic basic-proof-state
              no-more-tactics-hook make-skip debug
-             with-goal match-goal)
+             with-goal match-goal match-goal*)
  tactic-debug? tactic-debug-hook
  run-script)
 
@@ -68,7 +68,7 @@
   (define (in-forever val)
     (in-cycle (in-value val)))
   
-  (define/contract ((then-l* tac . tacs) hole make-subgoal)
+  (define/contract ((then-l** tac . tacs) hole make-subgoal)
     (->* ((or/c tactic/c (promise/c tactic/c)))
          #:rest (listof (sequence/c (or/c tactic/c (promise/c tactic/c))))
          tactic/c)
@@ -84,14 +84,20 @@
                        old-hole
                        new-goal
                        (lambda (hole-stx _)
-                         ((apply then-l* next-tactic (cdr tacs))
+                         ((apply then-l** next-tactic (cdr tacs))
                           hole-stx
                           make-subgoal))))))))
        (define inner-next (lambda (old-hole new-goal) ((inners) old-hole new-goal)))
        ((force tac) hole inner-next)]
       [else
        ((force tac) hole make-subgoal)]))
-
+  
+  (define-syntax (then-l* stx)
+    (syntax-case stx ()
+      [(_ tac1 (tac2 ...) ...)
+       (syntax/loc stx
+         (then-l** tac1 (list tac2 ...) ...))]))
+  
   (define-syntax (then-l stx)
     (syntax-case stx ()
       [(_ tac1 (tac2 ...) ...)
@@ -102,7 +108,7 @@
                              (quasisyntax/loc t
                                (tactic/loc #,t #,(quasisyntax/loc t #'#,t)))))))])
        (quasisyntax/loc stx
-         (then-l* (tactic/loc tac1 #,(quasisyntax/loc #'tac1 #'#,#'tac1))
+         (then-l** (tactic/loc tac1 #,(quasisyntax/loc #'tac1 #'#,#'tac1))
                   #,@tactics/loc)))]))
 
   ;; If tacs is empty, just run tac. Otherwise, run tac, with
@@ -208,7 +214,20 @@
          (call-with-goal
           (lambda (g)
             e ...)))]))
-
+  
+  (define-syntax (match-goal* stx)
+    (syntax-case stx ()
+      [(_ (pat #:when w body ...) ...)
+       (quasisyntax/loc stx
+         (with-goal g
+           (match g
+             (pat #:when w (then* body ...))
+             ...
+             (_ (fail "No pattern matched goal")))))]
+      [(_ (pat body ...) ...)
+       (syntax/loc stx
+         (match-goal* (pat #:when #t body ...) ...))]))
+  
   (define-syntax (match-goal stx)
     (syntax-case stx ()
       [(_ (pat #:when w body ...) ...)
