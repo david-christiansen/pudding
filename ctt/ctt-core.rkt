@@ -96,7 +96,7 @@
                                                   (list (get-hole-loc hole-stx))))
                           (save-error exn)
                           ((error-display-handler) message exn)
-                          #;
+                          ;#;
                           (raise-syntax-error 'run-script
                                               message
                                               (get-hole-loc hole-stx))))

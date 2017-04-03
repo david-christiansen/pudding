@@ -3,6 +3,7 @@
 (require (for-syntax racket/base racket/match "engine/proof-state.rkt" "goal.rkt"
                      (for-syntax racket/base syntax/parse))
           "lcfish.rkt"
+          (for-syntax racket/contract)
          racket/match (for-syntax racket/stxparam) racket/control)
 
 (provide (for-syntax subgoal not-applicable rule))
@@ -31,7 +32,7 @@
   (define-syntax (rule stx)
     (syntax-parse stx
       [(_ goal-pat opts:rule-options result ... last-result)
-       (syntax/loc stx
+       (quasisyntax/loc stx
          (lambda (hole make-subgoal)
            (struct exn:fail:this-rule exn:fail ()
              #:extra-constructor-name make-exn:fail:this-rule)
@@ -55,6 +56,9 @@
                                 ((fail (exn-message e)) hole make-subgoal))])
                (match (get-hole-goal hole)
                  [goal-pat #:when opts.when
-                           (call-with-continuation-barrier
-                            (lambda () result ... (opts.seal (refine hole last-result))))]
+                           (contract (λ (x) (not (void? x)))
+                                     (call-with-continuation-barrier
+                                      (lambda () result ... (opts.seal (refine hole last-result))))
+                                     '#,stx
+                                     'the-rule-macro)]
                  [other ((fail (format "Wrong goal:\n~a" other)) hole make-subgoal)])))))])))

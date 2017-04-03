@@ -13,16 +13,18 @@
       (leftmost (car v))
       v))
 
-(define no-more-tactics-hook
-    (make-parameter
-     (lambda (hole-stx)
-       (define st (get-proof-state hole-stx))
-       (define loc (proof-state-loc st))
-       (raise-syntax-error 'no-more-tactics "No more tactics" loc))
-     (lambda (f)
-       (if (procedure? f)
-           f
-           (error "must be a proc")))))
+(require racket/contract)
+(define/contract no-more-tactics-hook
+  (parameter/c (-> syntax? syntax?))
+  (make-parameter
+   (lambda (hole-stx)
+     (define st (get-proof-state hole-stx))
+     (define loc (proof-state-loc st))
+     (raise-syntax-error 'no-more-tactics "No more tactics" loc))
+   (lambda (f)
+     (if (procedure? f)
+         f
+         (error "must be a proc")))))
 
 (define basic-handler
   (make-parameter
