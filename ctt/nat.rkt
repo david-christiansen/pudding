@@ -482,7 +482,7 @@
            symmetry))
   
   (define-for-syntax (call-with-hypothesis-name num tac)
-    (match-goal
+    (match-goal*
      ((⊢ H G)
       #:when (>= (length H) num)
       (tac (hypothesis-id (list-ref H num))))))
@@ -490,7 +490,7 @@
   (define-for-syntax (call-with-hypothesis-names . args)
     (match args
       [(list num ... tac)
-       (match-goal
+       (match-goal*
         ((⊢ H G)
          (apply tac
                 (for/list ([n num])
@@ -627,7 +627,7 @@
                                                                                             ((then apply-reduce
                                                                                                    (auto)
                                                                                                    (ind-Nat-equality (ex #'(lambda (_) (Nat))))
-                                                                                                   (repeat (auto) ))
+                                                                                                   (repeat (auto)))
                                                                                              (then (replace 0
                                                                                                             (ex #'(Π (Nat) (lambda (n) (Nat))))
                                                                                                             (ex #`((λ (n) (λ (m) (ind-Nat n m (λ (k) (λ (ih) (add1 ih))))))
@@ -641,8 +641,9 @@
                                                                                                    (repeat (auto))
                                                                                                    (then apply-reduce
                                                                                                          (ind-Nat-equality (ex #'(lambda (_) (Nat))))
-                                                                                                         (repeat (try (auto) add1-equality)))))))
-                                                                              (then (replace 0 (ex #'(Nat))
+                                                                                                         (repeat (auto)))))))
+                                                                              (then (replace 0
+                                                                                             (ex #'(Nat))
                                                                                              (ex #`(ind-Nat #,k-name #,n2-name (λ (k) (λ (ih) (add1 ih)))))
                                                                                              (ex #`((plus #,k-name) #,n2-name))
                                                                                              (ex #`(lambda (here)
