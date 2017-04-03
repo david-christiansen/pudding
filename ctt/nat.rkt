@@ -396,9 +396,9 @@
                 (assumption 0)))
 
   (define-for-syntax (repeat t)
-    (try (then t
-               (delay (repeat t)))
-         skip))
+    (try* (then* t
+                 (delay (repeat t)))
+          skip))
 
   (define-syntax (abstract stx)
     (syntax-parse stx
@@ -496,6 +496,41 @@
                 (for/list ([n num])
                   (hypothesis-id (list-ref H n))))))]
       [_ (fail "Bad call-with-hypothesis-names use")]))
+
+  (define-for-syntax (find-redex stx hole-stx)
+    (syntax-parse stx
+      #:literal-sets (kernel-literals)
+      [(#%plain-apply (#%plain-lambda (x:id) body ) arg)
+       (values hole-stx stx (subst1 #'x #'arg #'body))]
+      [((~and ap #%plain-apply) f arg)
+       (define-values (ctx redex smaller)
+         (find-redex #'f hole-stx))
+       (values
+        (quasisyntax/loc stx
+          (ap #,ctx arg))
+        redex
+        smaller)]
+      [g (error (format "Not a redex: ~a" (syntax->datum #'g)))]))
+  
+  (define-for-syntax (β type)
+    (match-goal*
+     ((⊢ H G)
+      (with-handlers ([exn:fail?
+                       (lambda (e)
+                         (fail "Can't use β here: ~a" (exn-message e)))])
+      (syntax-parse G
+        #:literal-sets (kernel-literals)
+        [eq:Eq
+         (define hole #'hole)
+         (define-values (ctx redex smaller) (find-redex #'eq.left hole))
+         (displayln (map syntax->datum (list ctx redex smaller #'eq)))
+         (then-l (cut 0 (ex #`(≡ #,type #,redex #,smaller)))
+                  (apply-reduce
+                   (then
+                    (then-l (replace 0 type redex smaller (ex #`(lambda (#,hole) (≡ eq.type #,ctx eq.right))))
+                             ((assumption 0)))
+                    (thin 0))))]
+        [_ (fail "Can't β")])))))
   
   (define-for-syntax (unfold-all id . ids)
     (then* (unfold id)
