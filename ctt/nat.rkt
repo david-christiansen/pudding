@@ -157,7 +157,7 @@
                                              [k (syntax->list #'(arg2 ...))])
                                     (subgoal (⊢ H (ex #`(≡ (Nat) #,j #,k)))))
              #`(side-conditions subgoal ...
-                (void))]
+                                (void))]
             [other
              (not-applicable "Not a Nat arithmetic equality: ~a" (syntax->datum #'other))])))
 
@@ -254,8 +254,8 @@
                                    (cons (hyp n nat #f)
                                          H))
                              (ex (subst1 x #`(add1 #,n) G))))
-                      k
-                      ih))))
+                        k
+                        ih))))
              
              #`(ind-Nat #,x
                         #,base
@@ -511,26 +511,29 @@
         redex
         smaller)]
       [g (error (format "Not a redex: ~a" (syntax->datum #'g)))]))
-  
+
+  ;; Inspect the LHS of the goal to find the head beta-redex. Reduce it at the given type, with subgoals being:
+  ;;  1. The type is well-formed
+  ;;  2. The original goal
+  ;;  3. The redex inhabits the type
   (define-for-syntax (β type)
     (match-goal*
      ((⊢ H G)
       (with-handlers ([exn:fail?
                        (lambda (e)
                          (fail "Can't use β here: ~a" (exn-message e)))])
-      (syntax-parse G
-        #:literal-sets (kernel-literals)
-        [eq:Eq
-         (define hole #'hole)
-         (define-values (ctx redex smaller) (find-redex #'eq.left hole))
-         (displayln (map syntax->datum (list ctx redex smaller #'eq)))
-         (then-l (cut 0 (ex #`(≡ #,type #,redex #,smaller)))
-                  (apply-reduce
-                   (then
-                    (then-l (replace 0 type redex smaller (ex #`(lambda (#,hole) (≡ eq.type #,ctx eq.right))))
-                             ((assumption 0)))
-                    (thin 0))))]
-        [_ (fail "Can't β")])))))
+        (syntax-parse G
+          #:literal-sets (kernel-literals)
+          [eq:Eq
+           (define hole #'hole)
+           (define-values (ctx redex smaller) (find-redex #'eq.left hole))
+           (then-l* (cut 0 (ex #`(≡ #,type #,redex #,smaller)))
+                    (apply-reduce
+                     (then*
+                      (then* (replace 0 type redex smaller (ex #`(lambda (#,hole) (≡ eq.type #,ctx eq.right))))
+                             (try* (assumption 0) skip))
+                      (thin 0))))]
+          [_ (fail "Can't β")])))))
   
   (define-for-syntax (unfold-all id . ids)
     (then* (unfold id)
@@ -568,120 +571,94 @@
                                   (unfold-all #'plus #'another-plus))
                             ((then reduce-both
                                    (auto)
-                                   nat-simplify
                                    ind-Nat-0-reduce
-                                   (repeat (auto/arith)))
+                                   (auto/arith))
                              (then reduce-both
                                    (auto)
                                    (call-with-hypothesis-names
                                     4 0
                                     (lambda (k-name n2-name)
                                       (then-l (ind-Nat-add1-reduce k-name)
-                                              ((auto/arith)
-                                               (cut 0
-                                                    (ex #`(≡ (Π (Nat) (lambda (n) (Nat)))
-                                                             ((λ (k2) (λ (ih) (add1 ih))) #,k-name)
-                                                             (λ (ih) (add1 ih))))))
-                                              ((then apply-reduce (auto/arith))
-                                               (then-l
-                                                (replace 0
-                                                         (ex #'(Π (Nat) (λ (n) (Nat))))
-                                                         (ex #`((λ (k) (λ (ih) (add1 ih))) #,k-name))
-                                                         (ex #'(λ (ih) (add1 ih)))
-                                                         (ex #`(lambda (hole)
-                                                                 (≡ (Nat)
-                                                                    (hole (ind-Nat #,k-name #,n2-name (λ (k) (λ (ih) (add1 ih)))))
-                                                                    (+ #,n2-name (add1 #,k-name))))))
-                                                ((then apply-reduce (auto/arith))
-                                                 (repeat (auto))
-                                                 (then apply-reduce
-                                                       (then-l
-                                                        (cut 0 (ex #`(≡ (Nat)
-                                                                        (+ #,n2-name (add1 #,k-name))
-                                                                        (add1 (+ #,n2-name #,k-name)))))
-                                                        ((repeat (auto/arith))
-                                                         (then
-                                                          (replace 0
-                                                                   (ex #'(Nat))
-                                                                   (ex #`(+ #,n2-name (add1 #,k-name)))
-                                                                   (ex #`(add1 (+ #,n2-name #,k-name)))
-                                                                   (ex #`(lambda (hole)
-                                                                           (≡ (Nat)
-                                                                              (add1 (ind-Nat #,k-name
-                                                                                               #,n2-name
-                                                                                               (lambda (k) (lambda (ih) (add1 ih)))))
-                                                                              hole))))
-                                                          (repeat (auto))
-                                                          (then-l (cut 0 (ex #`(≡ (Nat)
-                                                                                  (+ #,n2-name #,k-name)
-                                                                                  ((another-plus #,n2-name) #,k-name))))
-                                                                  ((then (unfold-all #'another-plus)
-                                                                         symmetry
-                                                                         (then-l (cut 0 (ex #`(≡ (Π (Nat) (lambda (n) (Nat)))
-                                                                                                 ((λ (n) (λ (m) (+ m n))) #,n2-name)
-                                                                                                 (λ (m) (+ m #,n2-name)))))
-                                                                                 ((then apply-reduce
-                                                                                        (auto/arith))
-                                                                                  (then (replace 0
-                                                                                                 (ex #'(Π (Nat) (λ (n) (Nat))))
-                                                                                                 (ex #`((λ (n) (λ (m) (+ m n))) #,n2-name))
-                                                                                                 (ex #`(λ (m) (+ m #,n2-name)))
-                                                                                                 (ex #`(λ (here)
-                                                                                                         (≡ (Nat) (here #,k-name) (+ #,n2-name #,k-name)))))
-                                                                                        (try apply-reduce skip)
-                                                                                        (repeat (auto)))))
-                                                                                  
-                                                                         (auto/arith))
-                                                                   (then-l (cut 0 (ex #`(≡ (Nat)
-                                                                                           (ind-Nat #,k-name #,n2-name (λ (k) (λ (ih) (add1 ih))))
-                                                                                           ((plus #,k-name) #,n2-name)))
-                                                                                'refold)
-                                                                           ((then (unfold-all #'plus)
-                                                                                  symmetry
-                                                                                  (then-l (cut 0 (ex #`(≡ (Π (Nat) (lambda (n) (Nat)))
-                                                                                                          ((λ (n) (λ (m) (ind-Nat n m (λ (k) (λ (ih) (add1 ih)))))) #,k-name)
-                                                                                                          (λ (m) (ind-Nat #,k-name m (λ (k) (λ (ih) (add1 ih))))))))
-                                                                                          ((then apply-reduce
-                                                                                                 (auto)
-                                                                                                 (ind-Nat-equality (ex #'(lambda (_) (Nat))))
-                                                                                                 (repeat (auto)))
-                                                                                           (then (replace 0
-                                                                                                          (ex #'(Π (Nat) (lambda (n) (Nat))))
-                                                                                                          (ex #`((λ (n) (λ (m) (ind-Nat n m (λ (k) (λ (ih) (add1 ih))))))
-                                                                                                                 #,k-name))
-                                                                                                          (ex #`(λ (m) (ind-Nat #,k-name m (λ (k) (λ (ih) (add1 ih))))))
-                                                                                                          (ex #`(lambda (here)
-                                                                                                                  (≡ (Nat)
-                                                                                                                     (here #,n2-name)
-                                                                                                                     (ind-Nat #,k-name #,n2-name
-                                                                                                                              (λ (k) (λ (ih) (add1 ih))))))))
-                                                                                                 (repeat (auto))
-                                                                                                 (then apply-reduce
-                                                                                                       (ind-Nat-equality (ex #'(lambda (_) (Nat))))
-                                                                                                       (repeat (auto)))))))
+                                              ((auto/arith))
+                                              ((then-l
+                                                (β (ex #'(Π (Nat) (λ (n) (Nat)))))
+                                                ((repeat (auto))
+                                                 (then apply-reduce)
+                                                 (repeat (auto)))
+                                                ((then-l
+                                                  (cut 0 (ex #`(≡ (Nat)
+                                                                  (+ #,n2-name (add1 #,k-name))
+                                                                  (add1 (+ #,n2-name #,k-name)))))
+                                                  ((repeat (auto/arith))
+                                                   (then
+                                                    (replace 0
+                                                             (ex #'(Nat))
+                                                             (ex #`(+ #,n2-name (add1 #,k-name)))
+                                                             (ex #`(add1 (+ #,n2-name #,k-name)))
+                                                             (ex #`(lambda (hole)
+                                                                     (≡ (Nat)
+                                                                        (add1 (ind-Nat #,k-name
+                                                                                       #,n2-name
+                                                                                       (lambda (k) (lambda (ih) (add1 ih)))))
+                                                                        hole))))
+                                                    (repeat (auto))
+                                                    (then-l (cut 0 (ex #`(≡ (Nat)
+                                                                            (+ #,n2-name #,k-name)
+                                                                            ((another-plus #,n2-name) #,k-name))))
+                                                            ((then (unfold-all #'another-plus)
+                                                                   symmetry
+                                                                   (then-l (cut 0 (ex #`(≡ (Π (Nat) (lambda (n) (Nat)))
+                                                                                           ((λ (n) (λ (m) (+ m n))) #,n2-name)
+                                                                                           (λ (m) (+ m #,n2-name)))))
+                                                                           ((then apply-reduce
+                                                                                  (auto/arith))
                                                                             (then (replace 0
-                                                                                           (ex #'(Nat))
-                                                                                           (ex #`(ind-Nat #,k-name #,n2-name (λ (k) (λ (ih) (add1 ih)))))
-                                                                                           (ex #`((plus #,k-name) #,n2-name))
-                                                                                           (ex #`(lambda (here)
-                                                                                                   (≡ (Nat) here (+ #,n2-name #,k-name)))))
-                                                                                  (try (auto)
-                                                                                       (then (replace 0
-                                                                                                      (ex #'(Π (Nat) (λ (n) (Nat))))
-                                                                                                      (ex #`(plus #,k-name))
-                                                                                                      (ex #`(another-plus #,k-name))
-                                                                                                      (ex #`(lambda (here)
-                                                                                                              (≡ (Nat) (here #,n2-name) (+ #,n2-name #,k-name)))))
-                                                                                             (repeat (auto))
-                                                                                             symmetry
-                                                                                             (unfold-all #'another-plus)
-                                                                                             (replace 0
-                                                                                                      (ex #'(Π (Nat) (lambda (n) (Nat))))
-                                                                                                      (ex #`((λ (n) (λ (m) (+ m n))) #,k-name))
-                                                                                                      (ex #`(λ (m) (+ m #,k-name)))
-                                                                                                      (ex #`(lambda (here)
-                                                                                                              (≡ (Nat) (+ #,n2-name #,k-name) (here #,n2-name)))))
-                                                                                             (try apply-reduce skip)
-                                                                                             symmetry
-                                                                                             (try apply-reduce skip)
-                                                                                             (auto/arith)))))))))))))))))))))))))
+                                                                                           (ex #'(Π (Nat) (λ (n) (Nat))))
+                                                                                           (ex #`((λ (n) (λ (m) (+ m n))) #,n2-name))
+                                                                                           (ex #`(λ (m) (+ m #,n2-name)))
+                                                                                           (ex #`(λ (here)
+                                                                                                   (≡ (Nat) (here #,k-name) (+ #,n2-name #,k-name)))))
+                                                                                  (try apply-reduce skip)
+                                                                                  (repeat (auto)))))
+                                                                                  
+                                                                   (auto/arith))
+                                                             (then-l (cut 0 (ex #`(≡ (Nat)
+                                                                                     (ind-Nat #,k-name #,n2-name (λ (k) (λ (ih) (add1 ih))))
+                                                                                     ((plus #,k-name) #,n2-name)))
+                                                                          'refold)
+                                                                     ((then (unfold-all #'plus)
+                                                                            symmetry
+                                                                            (then-l (β (ex #`(Π (Nat) (lambda (n) (Nat)))))
+                                                                                    ((repeat (auto))
+                                                                                     (then apply-reduce
+                                                                                           (ind-Nat-equality (ex #'(lambda (_) (Nat))))
+                                                                                           (repeat (auto)))
+                                                                                     (then (auto)
+                                                                                           (ind-Nat-equality (ex #'(lambda (_) (Nat))))
+                                                                                           (repeat (auto))))))
+                                                                      (then (replace 0
+                                                                                     (ex #'(Nat))
+                                                                                     (ex #`(ind-Nat #,k-name #,n2-name (λ (k) (λ (ih) (add1 ih)))))
+                                                                                     (ex #`((plus #,k-name) #,n2-name))
+                                                                                     (ex #`(lambda (here)
+                                                                                             (≡ (Nat) here (+ #,n2-name #,k-name)))))
+                                                                            (try (auto)
+                                                                                 (then (replace 0
+                                                                                                (ex #'(Π (Nat) (λ (n) (Nat))))
+                                                                                                (ex #`(plus #,k-name))
+                                                                                                (ex #`(another-plus #,k-name))
+                                                                                                (ex #`(lambda (here)
+                                                                                                        (≡ (Nat) (here #,n2-name) (+ #,n2-name #,k-name)))))
+                                                                                       (repeat (auto))
+                                                                                       symmetry
+                                                                                       (unfold-all #'another-plus)
+                                                                                       (replace 0
+                                                                                                (ex #'(Π (Nat) (lambda (n) (Nat))))
+                                                                                                (ex #`((λ (n) (λ (m) (+ m n))) #,k-name))
+                                                                                                (ex #`(λ (m) (+ m #,k-name)))
+                                                                                                (ex #`(lambda (here)
+                                                                                                        (≡ (Nat) (+ #,n2-name #,k-name) (here #,n2-name)))))
+                                                                                       (try apply-reduce skip)
+                                                                                       symmetry
+                                                                                       (try apply-reduce skip)
+                                                                                       (auto/arith))))))))))))))))))))))))
