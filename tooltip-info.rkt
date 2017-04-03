@@ -6,6 +6,7 @@
 (define-for-syntax (tooltip-info show)
   (lambda (loc goal)
     (when loc
-      (save-tooltip (string-append (format "~a\n" (syntax->datum loc))
-                                   (show goal))
+      (save-tooltip (lambda ()
+                      (string-append (format "~a\n" (syntax->datum loc))
+                                     (show goal)))
                     loc))))

@@ -23,7 +23,7 @@
               msg))
     (log-message online-check-syntax-logger
                  'info
-                 msg
+                 "tooltip"
                  (list (syntax-property #'(void) 'mouse-over-tooltips tooltip)))
     (set-box! lifted-tooltips
               (cons tooltip (unbox lifted-tooltips)))))
