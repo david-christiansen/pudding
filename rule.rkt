@@ -57,5 +57,4 @@
                  [goal-pat #:when opts.when
                            (call-with-continuation-barrier
                             (lambda () result ... (opts.seal (refine hole last-result))))]
-                 [other ((fail (string-append (format "Wrong goal:\n~a" other)))
-                         hole make-subgoal)])))))])))
+                 [other ((fail (format "Wrong goal:\n~a" other)) hole make-subgoal)])))))])))
