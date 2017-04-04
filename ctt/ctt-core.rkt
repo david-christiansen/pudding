@@ -40,7 +40,8 @@
                      assumption assumption-refl thin
                      cut
                      lemma unfold
-                     todo ADMIT)
+                     todo ADMIT
+                     stx->string)
          (struct-out Π)
          (struct-out ≡)
          (struct-out U)
@@ -194,7 +195,7 @@
        (let ([val (free-id-table-ref to-subst #'x #f)])
          (if val val #'x))]
       [((~and ap #%plain-app) e ...)
-       #`(ap #,@(map (subst* to-subst) (syntax-e #'(e ...))))]
+       (syntax-disarm #`(ap #,@(map (subst* to-subst) (syntax-e #'(e ...)))) #f)]
       [((~and lam #%plain-lambda) (arg ...) body ...)
        #`(lam (arg ...) #,@(map (subst* to-subst) (syntax-e #'(body ...))))]
       [(#%expression e)
@@ -279,8 +280,9 @@
 (define-for-syntax (constructs? struct-type-name identifier)
   ;; this seems wrong, but the struct transformer binding's notion of constructor is not
   ;; the right thing here...
-  (free-identifier=? (syntax-property identifier 'constructor-for)
-                     struct-type-name))
+  (and (identifier? (syntax-property identifier 'constructor-for))
+       (free-identifier=? (syntax-property identifier 'constructor-for)
+                          struct-type-name)))
 
 (begin-for-syntax
   (define-syntax-class Uni
@@ -818,8 +820,8 @@
                                                                 null)))
                                     #,(subgoal (⊢ H (subst1 #'x right #'body))))
                  (not-applicable (format "replace: Expected ~a, got ~a"
-                                         (syntax->datum left-body)
-                                         (syntax->datum G))))]
+                                         (stx->string left-body)
+                                         (stx->string G))))]
             [_ (not-applicable "Malformed rewrite context. Must be a single-arg λ, but was ~a" rewrite-ctxt)])))
 
   (define symmetry
