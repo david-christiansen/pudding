@@ -29,7 +29,7 @@
 (define (monus . args)
   (max 0 (apply - args)))
 
-
+(begin-for-syntax (define-syntax-rule (E t) (ex #`t)))
 (define-for-syntax (ex tm)
   (local-expand tm 'expression null))
 
@@ -516,17 +516,17 @@
                      (loop (add1 i)))
                (fail "Can't auto: ~a" (stx->string G))))]))))
 
+  (define-for-syntax (flip t) (then* symmetry t symmetry))
+
   (define-for-syntax (auto/arith)
-    (then* (try* nat-simplify skip)
-           (try* nat-equal-arith skip)
-           (try* (ind-Nat-equality (ex #'(lambda (_) (Nat)))) skip)
-           (auto)
-           symmetry
-           (try* nat-simplify skip)
-           (try* nat-equal-arith skip)
-           (try* (ind-Nat-equality (ex #'(lambda (_) (Nat)))) skip)
-           (auto)
-           symmetry))
+    (try* (fail-if-skip nat-simplify)
+          (fail-if-skip (flip nat-simplify))
+          nat-equal-arith
+          (flip nat-equal-arith)
+          (ind-Nat-equality (ex #'(lambda (_) (Nat))))
+          (flip (ind-Nat-equality (ex #'(lambda (_) (Nat)))))
+          (auto)
+          (flip (auto))))
   
   (define-for-syntax (call-with-hypothesis-name num tac)
     (match-goal*
@@ -581,6 +581,12 @@
                              (try* (assumption 0) skip))
                       (thin 0))))]
           [_ (fail "Can't β")])))))
+
+  (define-for-syntax β*
+    (let ([x (try* (β (E (Nat)))
+                   (β (E (=> (Nat) (Nat))))
+                   (β (E (=> (Nat) (Nat) (Nat)))))])
+      (try* x (flip x))))
   
   (define-for-syntax (unfold-all id . ids)
     (then* (unfold id)
@@ -600,6 +606,8 @@
 
   (define-for-syntax reduce-both
     (then* apply-reduce symmetry apply-reduce symmetry))
+  (define-for-syntax reduce-either
+    (try* apply-reduce (flip apply-reduce)))
   (begin-for-syntax
     (define-syntax-rule (with-hyps ([id n] ...) . b)
       (call-with-hypothesis-names
@@ -630,33 +638,26 @@
                      (auto)
                      (with-hyps ([k0 2] [n2 0])
                        (auto)
-                       (β (ex #'(=> (Nat) (Nat))))
+                       (β (E (=> (Nat) (Nat))))
                        (repeat (try apply-reduce (auto/arith)))
-                             
-                       nat-simplify
-                       nat-equal-arith
-                       (try (auto/arith) skip)
                        (then-l
-                        (replace (ex #'(Nat))
-                                 (ex #`(ind-Nat k0 n2 (λ (k) (λ (ih) (add1 ih)))))
-                                 (ex #`((plus k0) n2))
-                                 (ex #`(λ (here) (≡ (Nat) (+ k0 n2) here))))
+                        (replace (E (Nat))
+                                 (E (ind-Nat k0 n2 (λ (k) (λ (ih) (add1 ih)))))
+                                 (E ((plus k0) n2))
+                                 (E (λ (here) (≡ (Nat) (+ k0 n2) here))))
                         ((then (unfold-all #'plus)
-                               symmetry
-                               (β (ex #`(=> (Nat) (Nat))))
-                               (repeat (try apply-reduce (auto/arith))))
+                               (flip (β (E (=> (Nat) (Nat)))))
+                               (repeat (try reduce-either (auto/arith))))
                          (auto)
-                         (then (replace (ex #'(=> (Nat) (Nat)))
-                                        (ex #`(plus k0))
-                                        (ex #`(another-plus k0))
-                                        (ex #`(λ (here) (≡ (Nat) (+ k0 n2) (here n2)))))
+                         (then (replace (E (=> (Nat) (Nat)))
+                                        (E (plus k0))
+                                        (E (another-plus k0))
+                                        (E (λ (here) (≡ (Nat) (+ k0 n2) (here n2)))))
                                (repeat (auto))
                                (unfold-all #'another-plus)
-                               (try apply-reduce skip)
-                               symmetry
-                               (β (ex #'(=> (Nat) (Nat))))
-                               (try apply-reduce skip)
-                               (repeat (auto/arith)))))))))))))
+                               (repeat reduce-either)
+                               (flip (β (E (=> (Nat) (Nat)))))
+                               (repeat (try reduce-either (auto/arith))))))))))))))
 
 
 

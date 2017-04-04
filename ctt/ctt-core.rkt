@@ -41,7 +41,8 @@
                      cut
                      lemma unfold
                      todo ADMIT
-                     stx->string)
+                     stx->string
+                     equal-goal? fail-if-skip)
          (struct-out Π)
          (struct-out ≡)
          (struct-out U)
@@ -323,7 +324,7 @@
     #:literal-sets (kernel-literals)
     [x
      #:when (syntax-property #'x 'original-stx)
-     (stx->string (syntax-property #'x 'original-stx))]
+     (stx->string (leftmost (syntax-property #'x 'original-stx)))]
     [(#%plain-app e ...)
      (~a (map stx->string (syntax->list #'(e ...))))]
     [(#%plain-lambda (x ...) e ...)
@@ -1047,7 +1048,21 @@
                                               eq.right)
                                          'expression
                                          null))))
-            (_ (not-applicable))))))
+            (_ (not-applicable)))))
+
+  (define (equal-goal? G1 G2)
+    (match* (G1 G2)
+      [((⊢ H1 G1) (⊢ H2 G2))
+       ;; XXX too strict on hyps
+       (and (equal? H1 H2) (α-equiv?/hyps H1 G1 G2))]))
+
+  (define (fail-if-skip t)
+    (match-goal*
+     [before (then* t
+                    (match-goal*
+                     [after #:when (equal-goal? before after) (fail "goal did not change")]
+                     [_ #:when #t skip]))]))
+  )
 
 (module+ test
   (define U1→U1

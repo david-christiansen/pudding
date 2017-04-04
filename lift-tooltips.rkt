@@ -25,7 +25,7 @@
                  'info
                  "tooltip"
                  (list (syntax-property #'(void) 'mouse-over-tooltips tooltip)))
-    (set-box! lifted-tooltips
+    #;(set-box! lifted-tooltips
               (cons tooltip (unbox lifted-tooltips)))))
 
 (define-syntax (tooltips stx)

@@ -1,5 +1,5 @@
 #lang racket/base
-(require racket/match racket/promise (for-template racket/base) "refinement.rkt")
+(require racket/match racket/promise (for-template racket/base) "refinement.rkt" "../stx-utils.rkt")
 
 (provide basic-handler basic-proof-state proof-state? no-more-tactics-hook
          set-tactic set-goal set-handler set-loc set-basic-state
@@ -7,11 +7,6 @@
          unseal/hole refine)
 
 (define proof-state-prop 'proof-state)
-
-(define (leftmost v)
-  (if (pair? v)
-      (leftmost (car v))
-      v))
 
 (require racket/contract)
 (define/contract no-more-tactics-hook
