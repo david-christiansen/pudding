@@ -832,7 +832,8 @@
           #:seal seal-ctt
           (syntax-parse G
             [eq:Eq
-             (subgoal (⊢ H (local-expand #'(≡ eq.type eq.right eq.left) 'expression null)))])))
+             (subgoal (⊢ H (local-expand (syntax/loc G (≡ eq.type eq.right eq.left)) 'expression null)))]
+            [_ (not-applicable)])))
   
   (define (transitivity middle)
     (rule (⊢ H G)

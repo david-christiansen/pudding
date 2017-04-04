@@ -53,7 +53,9 @@
                                                  (current-continuation-marks)))]))])
              (with-handlers ([exn:fail:this-rule?
                               (lambda (e)
-                                ((fail (exn-message e)) hole make-subgoal))])
+                                ((fail (exn-message e)) hole make-subgoal))]
+                             [exn:fail:syntax?
+                              (λ (e) ((fail (exn-message e)) hole make-subgoal))])
                (match (get-hole-goal hole)
                  [goal-pat #:when opts.when
                            (contract (λ (x) (not (void? x)))

@@ -496,10 +496,6 @@
          #:with (#%plain-app ind-Nat (quote 0) base step) #'eq.left
          ind-Nat-0-reduce]
         [eq:Eq
-         #:with (#%plain-app ind-Nat a:id b:id step) #'eq.left
-         #:with (#%plain-app ind-Nat a*:id b*:id step*) #'eq.right
-         (ind-Nat-equality #'(lambda (_) eq.type))]
-        [eq:Eq
          #:with (#%plain-app ind-Nat (quote 0) base step) #'eq.right
          (then* symmetry ind-Nat-0-reduce symmetry)]
         [eq:Eq
@@ -523,12 +519,12 @@
   (define-for-syntax (auto/arith)
     (then* (try* nat-simplify skip)
            (try* nat-equal-arith skip)
-           ;(try* (ind-Nat-equality (ex #'(lambda (_) (Nat)))) skip)
+           (try* (ind-Nat-equality (ex #'(lambda (_) (Nat)))) skip)
            (auto)
            symmetry
            (try* nat-simplify skip)
            (try* nat-equal-arith skip)
-           ;(try* (ind-Nat-equality (ex #'(lambda (_) (Nat)))) skip)
+           (try* (ind-Nat-equality (ex #'(lambda (_) (Nat)))) skip)
            (auto)
            symmetry))
   
@@ -609,7 +605,7 @@
       (call-with-hypothesis-names
        n ...
        (λ (id ...)
-         (with-syntax ([id id] ...) . b)))))
+         (with-syntax ([id id] ...) (then . b))))))
   
   ;; TODO: requires rewriting with an equality and axiomatization of +, ind-Nat's op-sem
   (theorem plus-is-plus
@@ -633,44 +629,34 @@
                (then reduce-both
                      (auto)
                      (with-hyps ([k0 2] [n2 0])
-                       (then (auto)
-                             (β (ex #'(=> (Nat) (Nat))))
-                             (repeat (try apply-reduce (auto/arith)))
-                             (then-l (cut 0 (ex #`(≡ (Nat) ((another-plus n2) k0) (+ n2 k0))))
-                                     ((then (unfold-all #'another-plus)
-                                            (β (ex #'(=> (Nat) (Nat))))
-                                            (repeat (try apply-reduce (auto/arith))))
-                                      (then
-                                       nat-simplify
-                                       nat-equal-arith
-                                       (try (auto/arith) skip)
-                                       (then-l (cut 0 (ex #`(≡ (Nat)
-                                                               (ind-Nat k0 n2 (λ (k) (λ (ih) (add1 ih))))
-                                                               ((plus k0) n2)))
-                                                    'refold)
-                                               ((then (unfold-all #'plus)
-                                                      symmetry
-                                                      (β (ex #`(=> (Nat) (Nat))))
-                                                      (repeat (try apply-reduce (auto))))
-                                                (then
-                                                 (replace (ex #'(Nat))
-                                                          (ex #`(ind-Nat k0 n2 (λ (k) (λ (ih) (add1 ih)))))
-                                                          (ex #`((plus k0) n2))
-                                                          (ex #`(λ (here)
-                                                                  (≡ (Nat) (+ k0 n2) here))))
-                                                 (try (auto) skip)
-                                                 (replace (ex #'(=> (Nat) (Nat)))
-                                                          (ex #`(plus k0))
-                                                          (ex #`(another-plus k0))
-                                                          (ex #`(λ (here)
-                                                                  (≡ (Nat) (+ k0 n2) (here n2)))))
-                                                 (repeat (auto))
-                                                 (unfold-all #'another-plus)
-                                                 (try apply-reduce skip)
-                                                 symmetry
-                                                 (β (ex #'(=> (Nat) (Nat))))
-                                                 (try apply-reduce skip)
-                                                 (repeat (auto/arith)))))))))))))))))
+                       (auto)
+                       (β (ex #'(=> (Nat) (Nat))))
+                       (repeat (try apply-reduce (auto/arith)))
+                             
+                       nat-simplify
+                       nat-equal-arith
+                       (try (auto/arith) skip)
+                       (then-l
+                        (replace (ex #'(Nat))
+                                 (ex #`(ind-Nat k0 n2 (λ (k) (λ (ih) (add1 ih)))))
+                                 (ex #`((plus k0) n2))
+                                 (ex #`(λ (here) (≡ (Nat) (+ k0 n2) here))))
+                        ((then (unfold-all #'plus)
+                               symmetry
+                               (β (ex #`(=> (Nat) (Nat))))
+                               (repeat (try apply-reduce (auto/arith))))
+                         (auto)
+                         (then (replace (ex #'(=> (Nat) (Nat)))
+                                        (ex #`(plus k0))
+                                        (ex #`(another-plus k0))
+                                        (ex #`(λ (here) (≡ (Nat) (+ k0 n2) (here n2)))))
+                               (repeat (auto))
+                               (unfold-all #'another-plus)
+                               (try apply-reduce skip)
+                               symmetry
+                               (β (ex #'(=> (Nat) (Nat))))
+                               (try apply-reduce skip)
+                               (repeat (auto/arith)))))))))))))
 
 
 
