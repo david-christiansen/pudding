@@ -436,13 +436,13 @@
          [(_ free-id bound-id (#%expression e))
           (syntax/loc #'e
             (abstract free-id bound-id e))]
-         [(_ free-id bound-id (#%plain-app tm ...))
+         [(_ free-id bound-id ((~and ap #%plain-app) tm ...))
           (syntax/loc stx
-            (#%plain-app (abstract free-id bound-id tm) ...))]
-         [(_ free-id bound-id (#%plain-lambda (x ...) tm ...))
+            (ap (abstract free-id bound-id tm) ...))]
+         [(_ free-id bound-id ((~and lam #%plain-lambda) (x ...) tm ...))
           (syntax/loc stx
-            (#%plain-lambda (x ...) (abstract free-id bound-id tm) ...))]
-         [(_ free-id bound-id (quote any)) #'(quote any)]
+            (lam (x ...) (abstract free-id bound-id tm) ...))]
+         [(_ free-id bound-id (~and e (quote any))) #'e]
          [(_ free-id bound-id (tm ...))
           (syntax/loc stx
             ((abstract free-id bound-id tm) ...))]
@@ -490,6 +490,10 @@
          #:with (#%plain-app ind-Nat (quote 0) base step) #'eq.left
          ind-Nat-0-reduce]
         [eq:Eq
+         #:with (#%plain-app ind-Nat a:id b:id step) #'eq.left
+         #:with (#%plain-app ind-Nat a*:id b*:id step*) #'eq.right
+         (ind-Nat-equality #'(lambda (_) eq.type))]
+        [eq:Eq
          #:with (#%plain-app ind-Nat (quote 0) base step) #'eq.right
          (then* symmetry ind-Nat-0-reduce symmetry)]
         [eq:Eq
@@ -513,10 +517,12 @@
   (define-for-syntax (auto/arith)
     (then* (try* nat-simplify skip)
            (try* nat-equal-arith skip)
+           ;(try* (ind-Nat-equality (ex #'(lambda (_) (Nat)))) skip)
            (auto)
            symmetry
            (try* nat-simplify skip)
            (try* nat-equal-arith skip)
+           ;(try* (ind-Nat-equality (ex #'(lambda (_) (Nat)))) skip)
            (auto)
            symmetry))
   
@@ -608,12 +614,8 @@
             (extensionality 'an-arg)
             ;; Three subgoals: show that the LHS has the type, that the RHS has the type, and that
             ;; they are pointwise equal for well-typed input.
-            ((then (unfold-all #'plus)
-                   (repeat (auto))
-                   (ind-Nat-equality (ex #'(lambda (_) (Nat))))
-                   (repeat (auto/arith)))
-             (then (unfold-all #'another-plus)
-                   (repeat (auto/arith)))
+            ((then (unfold-all #'plus) (repeat (auto/arith)))
+             (then (unfold-all #'another-plus) (repeat (auto/arith)))
              ;; Pointwise equality.
              (then-l
               ;; By induction. In each subgoal of the induction, replace the functions with their
@@ -646,12 +648,8 @@
                                                       symmetry
                                                       (then-l (β (ex #`(=> (Nat) (Nat))))
                                                               ((repeat (auto))
-                                                               (then apply-reduce
-                                                                     (ind-Nat-equality (ex #'(lambda (_) (Nat))))
-                                                                     (repeat (auto)))
-                                                               (then (auto)
-                                                                     (ind-Nat-equality (ex #'(lambda (_) (Nat))))
-                                                                     (repeat (auto))))))
+                                                               (then apply-reduce (repeat (auto)))
+                                                               (repeat (auto)))))
                                                 (then
                                                  nat-simplify
                                                  nat-equal-arith
