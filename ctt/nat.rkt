@@ -546,6 +546,7 @@
                   (then-l* (replace 0 #'eq.type #'eq.left #'eq.right context)
                            ((assumption 0)
                             (repeat (auto)))))])))
+           (thin 0)
            (if (null? ids)
                skip
                (apply unfold-all ids))))
@@ -576,7 +577,7 @@
                              (then reduce-both
                                    (auto)
                                    (call-with-hypothesis-names
-                                    4 0
+                                    2 0
                                     (lambda (k-name n2-name)
                                       (then-l (ind-Nat-add1-reduce k-name)
                                               ((auto/arith))
