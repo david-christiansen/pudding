@@ -321,6 +321,9 @@
 (define-for-syntax (stx->string stx)
   (syntax-parse stx
     #:literal-sets (kernel-literals)
+    [x
+     #:when (syntax-property #'x 'original-stx)
+     (stx->string (syntax-property #'x 'original-stx))]
     [(#%plain-app e ...)
      (~a (map stx->string (syntax->list #'(e ...))))]
     [(#%plain-lambda (x ...) e ...)
@@ -402,7 +405,7 @@
 (define-syntax (theorem stx)
   (syntax-parse stx
     [(_ name:id goal tactic1 tactic ...)
-     (define runtime-name (generate-temporary #'name))
+     (define runtime-name (syntax-property (generate-temporary #'name) 'original-stx #'name))
      (with-syntax ([runtime runtime-name]
                    [unseal #'unseal-ctt]
                    [seal #'seal-ctt])
