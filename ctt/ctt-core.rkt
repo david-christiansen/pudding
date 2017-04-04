@@ -796,7 +796,7 @@
                                            (local-expand #`(≡ #,ty #,x #,x) 'expression null))
                                           (syntax->datum G)))])])))
 
-  (define (replace i type left right ctxt)
+  (define (replace type left right ctxt #:universe (i 0))
     (rule (⊢ H G)
           #:seal seal-ctt
           (define rewrite-ctxt (local-expand ctxt 'expression null))
