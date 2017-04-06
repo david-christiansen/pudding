@@ -657,16 +657,12 @@
 
   (theorem test
            (≡ (=> (Nat) (Nat) (Nat))
-              (lambda (k) (lambda (y) (add1 (ind-Nat k y (λ (k) (λ (ih) (add1 ih)))))))
-              (lambda (k) (lambda (y) (+ y (add1 k)))))
-           (then (then-l (then (repeat (auto))
-                               (repeat (auto/arith)))
-                         (todo
-                          todo
-                          todo))
-                 todo)
+              (lambda (k) (lambda (y) y))
+              (lambda (k) (lambda (y) y)))
+           (then-l (then (try (try skip skip) skip) (try skip skip) skip)
+                   (todo))
            )
-  
+  #;
   ;; TODO: requires rewriting with an equality and axiomatization of +, ind-Nat's op-sem
   (theorem plus-is-plus
            (≡ (=> (Nat) (Nat) (Nat)) plus another-plus)
