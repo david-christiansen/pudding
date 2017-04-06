@@ -4,6 +4,7 @@
          "../lift-tooltips.rkt"
          "../lift-errors.rkt"
          "../rule.rkt"
+         "../auto.rkt"
          racket/stxparam
          (except-in "../lcfish.rkt" run-script)
          (for-syntax "unsafe.rkt" "../goal.rkt" racket/list)
@@ -453,7 +454,41 @@
           (syntax/loc stx
             ((abstract free-id bound-id tm) ...))]
          [(_ _ _ other) #'other]))))
-
+  (begin-for-syntax
+    (let ([auto-ind-Nat
+           (match-goal* ((⊢ H G)
+                         (syntax-parse G
+                           #:literal-sets (kernel-literals)
+                           #:literals (add1 ind-Nat)
+                           [eq:Eq
+                            #:with (#%plain-app ind-Nat (#%plain-app add1 k) base step) #'eq.left
+                            (then-l* (ind-Nat-add1-reduce #'k)
+                                     ((then* add1-equality (auto))))]
+                           [eq:Eq
+                            #:with (#%plain-app ind-Nat (quote 0) base step) #'eq.left
+                            (then-l* ind-Nat-0-reduce
+                                     (nat-equal-const))]
+                           [_ (fail "Goal not ind-Nat")])))])
+      (register/auto
+       (Π-in-uni)
+       nat-equality
+       λ-equality
+     
+       nat-equal-const
+       add1-equality
+       auto-ind-Nat
+       (then* symmetry
+              auto-ind-Nat
+              symmetry)
+       (match-goal* ((⊢ H _)
+                     (let loop ([i 0])
+                       (if (< i (length H))
+                           (try* (assumption-refl i)
+                                 (assumption i)
+                                 (delay (loop (add1 i))))
+                           (fail "Not an assumption"))))))))
+  
+  #;
   (define-for-syntax (auto)
     (match-goal*
      ((⊢ H G)
@@ -519,14 +554,15 @@
   (define-for-syntax (flip t) (then* symmetry t symmetry))
 
   (define-for-syntax (auto/arith)
-    (try* (fail-if-skip nat-simplify)
-          (fail-if-skip (flip nat-simplify))
-          nat-equal-arith
-          (flip nat-equal-arith)
-          (ind-Nat-equality (ex #'(lambda (_) (Nat))))
-          (flip (ind-Nat-equality (ex #'(lambda (_) (Nat)))))
-          (auto)
-          (flip (auto))))
+    (try* 
+     (fail-if-skip nat-simplify)
+     (fail-if-skip (flip nat-simplify))
+     nat-equal-arith
+     (flip nat-equal-arith)
+     (ind-Nat-equality (ex #'(lambda (_) (Nat))))
+     (flip (ind-Nat-equality (ex #'(lambda (_) (Nat)))))
+     (auto)
+     (flip (auto))))
   
   (define-for-syntax (call-with-hypothesis-name num tac)
     (match-goal*
@@ -614,6 +650,22 @@
        n ...
        (λ (id ...)
          (with-syntax ([id id] ...) (then . b))))))
+
+  (theorem four-plus-5
+           (≡ (=> (Nat) (Nat)) (lambda (x) (+ 4 5)) (lambda (y) 9))
+           (repeat (auto/arith)))
+
+  (theorem test
+           (≡ (=> (Nat) (Nat) (Nat))
+              (lambda (k) (lambda (y) (add1 (ind-Nat k y (λ (k) (λ (ih) (add1 ih)))))))
+              (lambda (k) (lambda (y) (+ y (add1 k)))))
+           (then (then-l (then (repeat (auto))
+                               (repeat (auto/arith)))
+                         (todo
+                          todo
+                          todo))
+                 todo)
+           )
   
   ;; TODO: requires rewriting with an equality and axiomatization of +, ind-Nat's op-sem
   (theorem plus-is-plus
@@ -625,6 +677,7 @@
             ;; they are pointwise equal for well-typed input.
             ((then (unfold-all #'plus) (repeat (auto/arith)))
              (then (unfold-all #'another-plus) (repeat (auto/arith)))
+             
              ;; Pointwise equality.
              (then-l
               ;; By induction. In each subgoal of the induction, replace the functions with their
@@ -636,10 +689,20 @@
                ;; Successor case.
                (then reduce-both
                      (auto)
+                     
                      (with-hyps ([k0 2] [n2 0])
+                       
                        (auto)
+                       
                        (β (E (=> (Nat) (Nat))))
+
                        (repeat (try apply-reduce (auto/arith)))
+                       
+                       (auto/arith)
+                       (auto/arith)
+                       (try (auto/arith) skip)
+                       (try (auto/arith) skip)
+                       ;todo
                        (then-l
                         (replace (E (Nat))
                                  (E (ind-Nat k0 n2 (λ (k) (λ (ih) (add1 ih)))))

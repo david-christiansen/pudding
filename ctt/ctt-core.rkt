@@ -1058,10 +1058,13 @@
 
   (define (fail-if-skip t)
     (match-goal*
-     [before (then* t
-                    (match-goal*
-                     [after #:when (equal-goal? before after) (fail "goal did not change")]
-                     [_ #:when #t skip]))]))
+     [before
+      (then*
+       t
+       (match-goal*
+        [after #:when (equal-goal? before after)
+               (fail "goal did not change")]
+        [_ #:when #t skip]))]))
   )
 
 (module+ test

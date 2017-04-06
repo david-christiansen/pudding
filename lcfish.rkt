@@ -156,11 +156,12 @@
     #;(displayln `(emitting ,out-stx))
     (seal-lcfish-test (refine hole out-stx)))
 
-  (define/contract ((fail message . args) hole make-subgoal)
+  (define/contract (fail message . args)
     (->* (string?) () #:rest (listof any/c) tactic/c)
-    (define h (get-hole-handler hole))
-    (define loc (get-hole-loc hole))
-    (h (make-exn:fail:tactics (apply format message args) (current-continuation-marks) hole loc)))
+    (lambda (hole make-subgoal)
+      (define h (get-hole-handler hole))
+      (define loc (get-hole-loc hole))
+      (h (make-exn:fail:tactics (apply format message args) (current-continuation-marks) hole loc))))
 
   ;; Transform a make-hole procedure to first replace the current handler. This is used to cut off
   ;; part of the proof tree at the end of a try.
