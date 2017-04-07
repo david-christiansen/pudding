@@ -1,0 +1,66 @@
+#lang racket
+
+
+(struct exn:fail:refinement exn:fail (rule goal))
+
+(define (raise-refinement-error rule msg goal)
+  (raise
+   (exn:fail:refinement
+    (format "~a: ~s with goal ~s" rule msg goal)
+    (current-continuation-marks)
+    rule
+    goal)))
+
+(struct refinement (subgoals validation))
+
+(define (FAIL) (error 'FAIL))
+
+(define (ID goal) (refinement (list goal) car))
+
+(define ((ORELSE t1 t2) goal)
+  (with-handlers ([exn:fail? (lambda (e) (t2 goal))])
+    (t1 goal)))
+
+(define (splits lengths lst)
+  (match lengths
+    ['() '()]
+    [(cons fst rst)
+     (cons (take lst fst) (splits rst (drop lst fst)))]))
+
+(define ((THEN t1 t2) goal)
+  (match (t1 goal)
+    [(refinement subs rebuild)
+     (match-define (list (refinement goals validations) ...) (map t2 subs))
+     (refinement
+      (flatten goals)
+      (lambda (sub-validations)
+        (rebuild
+         (for/list ([v validations]
+                    [subv (splits (map length goals) sub-validations)])
+           (v subv)))))]))
+
+(define ((THENL t1 t2s) goal)
+  (match (t1 goal)
+    [(refinement subs rebuild)
+     (match-define (list (refinement goals validations) ...)
+       (for/list ([t t2s] [s subs])
+         (t s)))
+     (refinement
+      (flatten goals)
+      (lambda (sub-validations)
+        (rebuild
+         (for/list ([v validations]
+                    [subv (splits (map length goals) sub-validations)])
+           (v subv)))))]))
+
+(struct boring-goal ())
+
+(define (run-proof tactic goal)
+  (if (not (boring-goal? goal))
+      (run-proof tactic (boring-goal))
+      ((refinement-validation (tactic goal)) '())))
+
+(define (l goal)
+  (refinement (list goal goal) (lambda (xs) xs)))
+(define ((emit x) goal)
+  (refinement '() (lambda (_) x)))
