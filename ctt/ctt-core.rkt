@@ -549,9 +549,9 @@
                 x]
                [else
                 (not-applicable (format "Mismatched assumption ~a. Expected ~a, got ~a"
-                                             n
-                                             (stx->string G)
-                                             (stx->string ty)))])])))
+                                        n
+                                        (stx->string G)
+                                        (stx->string ty)))])])))
 
   (define (lemma the-lemma [name 'lemma])
     (rule (⊢ H G)

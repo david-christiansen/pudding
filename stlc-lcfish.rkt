@@ -1,7 +1,7 @@
 #lang racket
 
 (require (except-in "lcfish.rkt" run-script)
-         (for-syntax racket/base (for-syntax racket/base))
+         (for-syntax racket/base (for-syntax racket/base) racket/stream)
          "engine/hole.rkt"
          (for-syntax "engine/proof-state.rkt")
          "tooltip-info.rkt"
@@ -159,19 +159,18 @@
           #:seal seal-stlc
           #`(lambda (#,x)
               #,(make-assumption-hole hole
-                                      make-hole
+                                      (stream-first make-hole)
                                       (datum->syntax #'here x)
                                       #'a
                                       H
-                                      #'b))
-          )
+                                      #'b)))
     (lambda (hole make-hole)
       (match-define (⊢ H G) (get-hole-goal hole))
       (syntax-case G (→)
         [(→ a b)
          ((emit #`(lambda (#,x)
                     #,(make-assumption-hole hole
-                                            make-hole
+                                            (stream-first make-hole)
                                             (datum->syntax #'here x)
                                             #'a
                                             H
@@ -221,10 +220,9 @@
       (match-define (⊢ H G) (get-hole-goal hole))
       (if (not (type=? G #'Int))
           ((fail (format "Type not Int: ~a" G)) hole make-subgoal)
-          ((emit #`(+ #,@(for/list ([h (in-producer (lambda ()
-                                                      (make-subgoal hole (⊢ H #'Int))))]
+          ((emit #`(+ #,@(for/list ([h (in-stream make-subgoal)]
                                     [i (in-range n)])
-                           h)))
+                           (h hole (⊢ H #'Int)))))
            hole make-subgoal))))
 
   (define/contract strlen
@@ -323,9 +321,8 @@
     (check-equal? (twice i) (* 2 i)))
 
   (define-for-syntax (repeat t)
-    (try (then t
-               (delay (repeat t)))
-         skip))
+    (then* t
+          (try* (delay (repeat t)) skip)))
 
   (define (length-+ str num)
     (run-script #:hyps ((str String) (num Int))
@@ -337,11 +334,11 @@
   
   (define add
     (run-script #:goal (→ Int (→ Int Int))
-                (repeat (→-intro))
-                (→-intro 'z)
-                (try (repeat (→-intro))
+                (repeat (→-intro 'x))
+                ;(→-intro 'z)
+                (try (repeat (→-intro 'y))
                      skip)
-                (try (repeat (→-intro))
+                (try (repeat (→-intro 'w))
                      skip)
                    
                 ;(string-intro "hey")
@@ -353,7 +350,8 @@
     (check-equal? ((add i) j) (+ i j)))
 
   (define b3 (run-script #:goal String
-                         (then-l repeat-string
-                                 ((then (int-intro 3))
-                                  (then (string-intro "badger "))))))
+                         (then-l (then skip skip repeat-string skip)
+                                 ((int-intro 3)
+                                  (string-intro "badger ")))))
+  (check-equal? b3 "badger badger badger ")
   )

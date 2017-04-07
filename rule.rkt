@@ -1,10 +1,11 @@
 #lang racket/base
 
-(require (for-syntax racket/base racket/match "engine/proof-state.rkt" "goal.rkt"
+(require (for-syntax racket/base racket/match racket/stream
+                     "engine/proof-state.rkt" "goal.rkt"
                      (for-syntax racket/base syntax/parse))
           "lcfish.rkt"
           (for-syntax racket/contract)
-         racket/match (for-syntax racket/stxparam) racket/control)
+         racket/match (for-syntax racket/stxparam))
 
 (provide (for-syntax subgoal not-applicable rule))
 
@@ -36,7 +37,10 @@
          (lambda (hole make-subgoal)
            (struct exn:fail:this-rule exn:fail ()
              #:extra-constructor-name make-exn:fail:this-rule)
-           (define (sub g) (make-subgoal hole g))
+           (define i (box -1))
+           (define (sub g)
+             (set-box! i (add1 (unbox i)))
+             ((stream-ref make-subgoal (unbox i)) hole g))
            (syntax-parameterize ([subgoal (make-rename-transformer #'sub)]
                                  [not-applicable
                                   (lambda (nope-stx)

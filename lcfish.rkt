@@ -1,6 +1,6 @@
 #lang racket/base
 (require (for-syntax racket/base racket/generator racket/contract racket/sequence racket/promise racket/match
-                     racket/function
+                     racket/function racket/stream racket/format
                      (for-syntax racket/base))
          racket/stxparam
          (for-syntax "engine/proof-state.rkt")
@@ -57,38 +57,39 @@
   ;; A tactic that does nothing.
   (define/contract (skip hole make-subgoal)
     tactic/c
+    (displayln 'skip)
     ((get-skip-tac hole) hole make-subgoal))
 
   (define/contract ((make-skip seal) hole make-subgoal)
     (-> (-> any/c sealed?) tactic/c)
     (call-with-continuation-barrier
      (thunk
-      (seal (refine hole (make-subgoal hole (get-hole-goal hole)))))))
+      (seal (refine hole ((stream-first make-subgoal) hole (get-hole-goal hole)))))))
 
-  (define (in-forever val)
-    (in-cycle (in-value val)))
+  (define (forever val)
+    (stream-cons val (forever val)))
   
   (define/contract ((then-l** tac . tacs) hole make-subgoal)
     (->* ((or/c tactic/c (promise/c tactic/c)))
-         #:rest (listof (sequence/c (or/c tactic/c (promise/c tactic/c))))
+         #:rest (listof (listof (or/c tactic/c (promise/c tactic/c))))
          tactic/c)
     (cond
       [(pair? tacs)
        (define inners
-         (generator ()
-           (for ([next-tactic
-                  (in-sequences (car tacs)
-                                (in-forever skip))])
-             (yield (lambda (old-hole new-goal)
-                      (subgoal-with-tactic
-                       old-hole
-                       new-goal
-                       (lambda (hole-stx _)
-                         ((apply then-l** next-tactic (cdr tacs))
-                          hole-stx
-                          make-subgoal))))))))
-       (define inner-next (lambda (old-hole new-goal) ((inners) old-hole new-goal)))
-       ((force tac) hole inner-next)]
+         (for/stream ([next-tactic (stream-append (car tacs) (forever skip))])
+           ;; This makes a subgoal
+           (lambda (old-hole new-goal)
+             (subgoal-with-tactic
+              old-hole
+              new-goal
+              ;; This is the tactic to have in the goal
+              (procedure-rename
+               (lambda (hole-stx nexts)
+                 ((apply then-l** next-tactic (cdr tacs))
+                  hole-stx
+                  nexts))
+               (string->symbol (format "~a ::: ~a" next-tactic (cdr tacs))))))))
+       ((force tac) hole inners)]
       [else
        ((force tac) hole make-subgoal)]))
   
@@ -121,16 +122,19 @@
       [(pair? tacs)
        ((force tac)
         hole
-        (lambda (old-hole new-goal)
-          (subgoal-with-tactic
-           old-hole
-           new-goal
-           (procedure-rename
-            (lambda (hole m-s)
-              ((apply then* tacs)
-               hole
-               make-subgoal))
-            (string->symbol (format "~a" tacs))))))]
+        (letrec ([next-tactic
+                  (lambda (old-hole new-goal)
+                    (subgoal-with-tactic
+                     old-hole
+                     new-goal
+                     (procedure-rename
+                      (lambda (hole m-s)
+                        ((apply then* tacs)
+                         hole
+                         make-subgoal))
+                      (string->symbol (format "~a" tacs)))))]
+                 [nexts (stream-cons next-tactic nexts) ])
+          nexts))]
       [else
        ((force tac) hole make-subgoal)]))
 
@@ -165,9 +169,11 @@
 
   ;; Transform a make-hole procedure to first replace the current handler. This is used to cut off
   ;; part of the proof tree at the end of a try.
-  (define (use-handler h make-subgoal)
-    (lambda (old-hole new-goal)
-      (set-handler (make-subgoal old-hole new-goal) h)))
+  (define/contract (use-handler h make-subgoal)
+    (-> (-> exn? any/c) (stream/c (-> syntax? any/c syntax?)) (stream/c (-> syntax? any/c syntax?)))
+    (for/stream ((m-s make-subgoal))
+      (lambda (old-hole new-goal)
+        (set-handler (m-s old-hole new-goal) h))))
   
   ;; Attempt to continue with tac, using alts in order if it fails. First, the proof script is
   ;; parameterized by the handler, but its continuation is then set up to de-install the handler.
@@ -184,7 +190,7 @@
                      ((force tac)
                       (set-handler hole k)
                       (use-handler h make-subgoal))))])
-         (if (exn:fail? res)
+         (if (exn? res)
              ((apply try* alts) hole make-subgoal)
              res))]
       [else
@@ -277,8 +283,8 @@
                skip)))
 
   (define-for-syntax (plus hole make-subgoal)
-    (define h1 (make-subgoal hole #f))
-    (define h2 (make-subgoal hole #f))
+    (define h1 ((stream-ref make-subgoal 0) hole #f))
+    (define h2 ((stream-ref make-subgoal 1) hole #f))
     (seal-lcfish-test (refine hole #`(+ #,h1 #,h2))))
 
   

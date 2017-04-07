@@ -426,9 +426,8 @@
                 (assumption 0)))
 
   (define-for-syntax (repeat t)
-    (try* (then* t
-                 (delay (repeat t)))
-          skip))
+    (then* t
+           (try* (delay (repeat t)) skip)))
 
   (define-syntax (abstract stx)
     (syntax-parse stx
@@ -659,10 +658,9 @@
            (≡ (=> (Nat) (Nat) (Nat))
               (lambda (k) (lambda (y) y))
               (lambda (k) (lambda (y) y)))
-           (then-l (then (try (try skip skip) skip) (try skip skip) skip)
-                   (todo))
+           (repeat (auto/arith))
            )
-  #;
+  
   ;; TODO: requires rewriting with an equality and axiomatization of +, ind-Nat's op-sem
   (theorem plus-is-plus
            (≡ (=> (Nat) (Nat) (Nat)) plus another-plus)
@@ -679,11 +677,12 @@
               ;; By induction. In each subgoal of the induction, replace the functions with their
               ;; definitions.
               (then (nat-elim 0)
-                    (unfold-all #'plus #'another-plus))
+                    (unfold-all #'plus #'another-plus)
+                    )
               ;; 0 case: reduce both sides, and then use simple arithmetic.
-              ((then reduce-both (repeat (auto/arith)))
+              (todo #;(then todo reduce-both (repeat (auto/arith)) (auto/arith) (auto/arith) todo)
                ;; Successor case.
-               (then reduce-both
+               todo #;(then todo reduce-both
                      (auto)
                      
                      (with-hyps ([k0 2] [n2 0])
@@ -694,11 +693,8 @@
 
                        (repeat (try apply-reduce (auto/arith)))
                        
-                       (auto/arith)
-                       (auto/arith)
-                       (try (auto/arith) skip)
-                       (try (auto/arith) skip)
-                       ;todo
+                      
+                       todo
                        (then-l
                         (replace (E (Nat))
                                  (E (ind-Nat k0 n2 (λ (k) (λ (ih) (add1 ih)))))
