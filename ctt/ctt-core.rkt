@@ -338,6 +338,7 @@
     [x:id
      #:when (syntax-property #'x 'constructor-for)
      (~a (syntax-e (syntax-property #'x 'constructor-for)))]
+    [(quote (~or x:str x:number)) (~a (syntax #'e))]
     [other (~a (syntax->datum #'other))]))
 
 (define-for-syntax (todo hole make-hole)
