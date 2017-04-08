@@ -1,10 +1,16 @@
 #lang racket/base
 
-(require (for-syntax racket/base racket/contract racket/promise
+(require racket/contract/base
+         (for-syntax racket/base racket/contract racket/promise syntax/srcloc
                      "proof-state.rkt" "refinement.rkt" "../seal.rkt"))
 
-(provide hole 
-         (for-syntax hole? tactic/c init-hole tactic-info-hook tactic/loc))
+(provide hole
+         (for-syntax hole?
+                     tactic/c
+                     multitactic/c
+                     init-hole tactic-info-hook tactic/loc
+                     (rename-out [make-tactic tactic]
+                                 [make-multi multitactic])))
 
 (define-for-syntax (hole? stx)
   (and (identifier? stx)
@@ -13,17 +19,36 @@
        #t))
 
 
+(define-for-syntax nat? exact-nonnegative-integer?)
+
+(begin-for-syntax
+  (struct tactic (code) #:transparent
+    #:property prop:procedure (struct-field-index code))
+  (struct multitactic (code) #:transparent
+    #:property prop:procedure (struct-field-index code)))
+
 ;; A tactic is a procedure that takes the hole on which it is invoked
 ;; and a "continuation" procedure that returns tactics for any
 ;; subgoals. It returns the output syntax, potentially containing new
 ;; holes.
-(define-for-syntax tactic/c
-  (-> syntax? (-> hole? any/c hole?) sealed?))
+(define-for-syntax tactic/c tactic?)
 
-  ;; A "next tactic" procedure that doesn't work. Used at the end of scripts.
-(define-for-syntax (no-more-tactics old-hole new-goal)
-  (set-tactic old-hole (lambda (h n-t)
-                         ((no-more-tactics-hook) h))))
+(define-for-syntax multitactic/c multitactic?)
+
+(begin-for-syntax
+  (define/contract (make-tactic t)
+    (-> (-> syntax? multitactic? sealed?) tactic?)
+    (tactic t))
+  (define/contract (make-multi mt)
+    (-> (-> exact-nonnegative-integer? tactic?) multitactic?)
+    (multitactic mt)))
+
+;; A multitactic that doesn't work. Used at the end of scripts.
+(define-for-syntax no-more-tactics
+  (multitactic
+   (procedure-rename (lambda (i)
+                       (tactic (lambda (hole _) ((no-more-tactics-hook) hole))))
+                     'no-more-tactics)))
 
 (define-for-syntax tactic-info-hook
   (make-parameter
@@ -31,11 +56,13 @@
 
 (define-syntax (hole stx)
   (define tac (get-hole-tactic stx))
+    (displayln `(hole ,tac))
   (define sealed-result (tac stx no-more-tactics))
   (when (void? sealed-result)
     (eprintf "bad!!! ~s\n" (list tac stx))
     (error 'FAIL))
   (define result (unseal/hole stx sealed-result))
+
   ((tactic-info-hook) (refinement-loc result) (refinement-goal result))
   (refinement-stx result))
 
@@ -50,7 +77,11 @@
    tactic))
 
 
-(define-for-syntax (tactic/loc tac loc)
-  (lambda (hole make-subgoal)
-    ((force tac) (set-loc hole loc) make-subgoal)))
+(begin-for-syntax
+  (define/contract (tactic/loc tac loc)
+    (-> (or/c tactic/c (promise/c tactic/c)) source-location?
+        tactic/c)
+    (make-tactic (lambda (hole make-subgoal)
+                   (displayln `(loc ,loc))
+                   ((force tac) (set-loc hole loc) make-subgoal)))))
 
