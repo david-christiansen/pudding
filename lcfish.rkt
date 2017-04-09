@@ -56,11 +56,14 @@
   ;; Sequence two multitactics
   (define/contract (multi-then m1 m2)
     (-> multitactic/c multitactic/c multitactic/c)
-    (multitactic (procedure-rename (lambda (i)
-                                     (displayln `((multi-then ,m1 ,m2) ,i))
-                                     (tactic (lambda (hole-stx ks)
-                                               ((m1 i) hole-stx (multi-then m2 ks)))))
-                                   (string->symbol (format "multi-then-[~a,~a]" (object-name m1) (object-name m2))))))
+    (multitactic (procedure-rename
+                  (lambda (i)
+                    (displayln `((multi-then ,m1 ,m2) ,i))
+                    (tactic (procedure-rename
+                             (lambda (hole-stx ks)
+                               ((m1 i) hole-stx (multi-then m2 ks)))
+                             (string->symbol (format "inner-multi-then-[~a,~a]" (object-name m1) (object-name m2))))))
+                  (string->symbol (format "multi-then-[~a,~a]" (object-name m1) (object-name m2))))))
 
   ;; Run a multitactic after a tactic
   (define/contract (seq t mt)
@@ -72,6 +75,7 @@
   ;; Create a syntax object that is a hole, and will run the provided tactic.
   (define/contract (subgoal-with-tactic old-hole new-goal tac)
     (-> hole? any/c tactic/c syntax?)
+    (printf "putting ~a in hole\n" tac)
     (set-goal (set-tactic old-hole tac) new-goal))
 
   ;; A multitactic that does nothing.
@@ -187,13 +191,14 @@
 
   ;; Transform a multitactic to first replace the current handler. This is used to cut off
   ;; part of the proof tree at the end of a try.
-  (define/contract (use-handler h mt)
+  (define/contract (use-handler h outer-mt)
     (-> (-> exn:fail:tactics? any) multitactic/c
         multitactic/c)
     (multitactic (procedure-rename (lambda (i)
-                                     (tactic (lambda (hole mt)
-                                               ((mt i) (set-handler hole h)))))
-                                   (let ([n (object-name mt)])
+                                     (tactic (procedure-rename (lambda (hole inner-mt)
+                                                                 ((outer-mt i) (set-handler hole h) inner-mt))
+                                                               (string->symbol (format "use-handler-t[-~a]" (object-name outer-mt))))))
+                                   (let ([n (object-name outer-mt)])
                                      (if n
                                          (string->symbol (format "use-handler-~a" n))
                                          'use-handler)))))
@@ -216,6 +221,7 @@
                                ((force tac)
                                 (set-handler hole k)
                                 (use-handler h make-subgoal))))])
+                   (displayln `(res ,res))
                    (if (exn:fail? res)
                        ((apply try* alts) hole make-subgoal)
                        res))]
@@ -389,30 +395,16 @@
   (define-for-syntax counter 0)
 
   (define-for-syntax at-most-two-plus
-    (tactic (lambda (hole new-hole)
-              (displayln `(at-most-two-plus ,counter))
-              (if (> counter 1)
-                  ((fail "no more plus") hole new-hole)
-                  (begin (set! counter (+ counter 1))
-                         (plus hole new-hole))))))
-  
+    (tactic (procedure-rename (lambda (hole new-hole)
+                                (displayln `(at-most-two-plus ,counter))
+                                (if (> counter 1)
+                                    ((fail "no more plus") hole new-hole)
+                                    (begin (set! counter (+ counter 1))
+                                           (plus hole new-hole))))
+                              'at-most-two-plus-tac)))
 
-
-  (define bar (run-script (then* (then* (repeat at-most-two-plus)
-                                        (fail "fnord")
-                                        #;((log "foo") 0))
-                                 (emit #'90))))
-  #;(check-equal? bar 3)  ;; (+ (+ 1 1) 1)
-
-  #|
-  
-
-  
-
- 
-
- |#
-
+  (define bar (run-script (repeat at-most-two-plus) (emit #'1)))
+  (check-equal? bar 3)  ;; (+ (+ 1 1) 1)
 )
 
 
