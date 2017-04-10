@@ -56,7 +56,6 @@
 
 (define-syntax (hole stx)
   (define tac (get-hole-tactic stx))
-  (displayln `(hole ,tac))
   (define sealed-result (tac stx no-more-tactics))
   (when (void? sealed-result)
     (eprintf "bad!!! ~s\n" (list tac stx))
@@ -82,7 +81,6 @@
     (-> (or/c tactic/c (promise/c tactic/c)) source-location?
         tactic/c)
     (make-tactic (procedure-rename (lambda (hole make-subgoal)
-                                     (displayln `(loc ,loc))
                                      ((force tac) (set-loc hole loc) make-subgoal))
                                    (string->symbol (format "tac/loc-~a" (object-name tac)))))))
 

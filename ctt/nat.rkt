@@ -410,9 +410,9 @@
   (theorem another-plus
            (=> (Nat) (Nat) (Nat))
            (Π-intro 0 'n)
-           (try nat-equality skip)
+           (try nat-equality (skip 0))
            (Π-intro 0 'm)
-           (try nat-equality skip)
+           (try nat-equality (skip 0))
            (then-l
             (nat-intro-arith '+ 2)
             ((assumption 0) (assumption 1))))
@@ -427,7 +427,7 @@
   (define-for-syntax (repeat t)
     (try* (then* t
                  (delay (repeat t)))
-          skip))
+          (skip 0)))
 
   (define-syntax (abstract stx)
     (syntax-parse stx
@@ -578,7 +578,7 @@
                     (apply-reduce
                      (then*
                       (then* (replace type redex smaller (ex #`(lambda (#,hole) (≡ eq.type #,ctx eq.right))))
-                             (try* (assumption 0) skip))
+                             (try* (assumption 0) (skip 0)))
                       (thin 0))))]
           [_ (fail "Can't β")])))))
 
@@ -589,20 +589,20 @@
       (try* x (flip x))))
   
   (define-for-syntax (unfold-all id . ids)
-    (then* (unfold id)
-           (match-goal*
-            ((⊢ (cons (hyp _ t _) H) G)
-             (syntax-parse t
-               [eq:Eq
-                (let ([context (with-syntax ([G G] [id id])
-                                 (ex #'(lambda (x) (abstract id x G))))])
-                  (then-l* (replace #'eq.type #'eq.left #'eq.right context)
-                           ((assumption 0)
-                            (repeat (auto)))))])))
-           (thin 0)
-           (if (null? ids)
-               skip
-               (apply unfold-all ids))))
+    (seq (then* (unfold id)
+                (match-goal*
+                 ((⊢ (cons (hyp _ t _) H) G)
+                  (syntax-parse t
+                    [eq:Eq
+                     (let ([context (with-syntax ([G G] [id id])
+                                      (ex #'(lambda (x) (abstract id x G))))])
+                       (then-l* (replace #'eq.type #'eq.left #'eq.right context)
+                                ((assumption 0)
+                                 (repeat (auto)))))])))
+                (thin 0))
+         (if (null? ids)
+             skip
+             (in-all (apply unfold-all ids)))))
 
   (define-for-syntax reduce-both
     (then* apply-reduce symmetry apply-reduce symmetry))
@@ -615,7 +615,6 @@
        (λ (id ...)
          (with-syntax ([id id] ...) (then . b))))))
   
-  ;; TODO: requires rewriting with an equality and axiomatization of +, ind-Nat's op-sem
   (theorem plus-is-plus
            (≡ (=> (Nat) (Nat) (Nat)) plus another-plus)
            (then-l
@@ -626,13 +625,16 @@
             ((then (unfold-all #'plus) (repeat (auto/arith)))
              (then (unfold-all #'another-plus) (repeat (auto/arith)))
              ;; Pointwise equality.
-             (then-l
+             (seq
               ;; By induction. In each subgoal of the induction, replace the functions with their
               ;; definitions.
-              (then (nat-elim 0)
-                    (unfold-all #'plus #'another-plus))
+              (seq (nat-elim 0)
+                   (in-all (unfold-all #'plus #'another-plus)))
               ;; 0 case: reduce both sides, and then use simple arithmetic.
-              ((then reduce-both (repeat (auto/arith)))
+              (cases todo
+                     todo
+                     todo)
+              #;((then reduce-both (repeat (auto/arith)) todo)
                ;; Successor case.
                (then reduce-both
                      (auto)

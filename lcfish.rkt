@@ -8,9 +8,9 @@
          (for-syntax "engine/refinement.rkt")
          "engine/hole.rkt")
 
-#;(provide
+(provide
  (for-syntax skip fail try try* then then* then-l then-l* tactic/c subgoal-with-tactic basic-proof-state
-             no-more-tactics-hook make-skip debug
+             no-more-tactics-hook make-skip debug seq in-all cases
              with-goal match-goal match-goal*)
  tactic-debug? tactic-debug-hook
  run-script)
@@ -58,31 +58,29 @@
     (-> multitactic/c multitactic/c multitactic/c)
     (multitactic (procedure-rename
                   (lambda (i)
-                    (displayln `((multi-then ,m1 ,m2) ,i))
                     (tactic (procedure-rename
                              (lambda (hole-stx ks)
-                               ((m1 i) hole-stx (multi-then m2 ks)))
-                             (string->symbol (format "inner-multi-then-[~a,~a]" (object-name m1) (object-name m2))))))
+                               ((m1 i) hole-stx (multi-then m2 (lambda (j) (ks (+ i j))))))
+                             (string->symbol (format "inner-multi-then-[~a,~a]"
+                                                     (object-name m1)
+                                                     (object-name m2))))))
                   (string->symbol (format "multi-then-[~a,~a]" (object-name m1) (object-name m2))))))
 
   ;; Run a multitactic after a tactic
   (define/contract (seq t mt)
     (-> tactic/c multitactic/c tactic/c)
     (tactic (lambda (hole-stx next)
-              (displayln `(seq ,t ,mt))
               (t hole-stx (multi-then mt next)))))
 
   ;; Create a syntax object that is a hole, and will run the provided tactic.
   (define/contract (subgoal-with-tactic old-hole new-goal tac)
     (-> hole? any/c tactic/c syntax?)
-    (printf "putting ~a in hole\n" tac)
     (set-goal (set-tactic old-hole tac) new-goal))
 
   ;; A multitactic that does nothing.
   (define/contract skip
     multitactic/c
     (multitactic (lambda (i)
-                   (displayln `(skippping ,i))
                    (tactic (lambda (hole make-subgoal)
                              ((make-subgoal i) hole make-subgoal)
                              #;
@@ -107,6 +105,15 @@
                    (if (< i (length tacs))
                        (force (list-ref tacs i))
                        (skip i)))))
+
+  (define-syntax (cases stx)
+    (syntax-case stx ()
+      [(_ c ...)
+       (with-syntax ([(c/loc ...)
+                      (for/list ([t (syntax->list #'(c ...))])
+                        (quasisyntax/loc t
+                          (tactic/loc #,t #,(quasisyntax/loc t #'#,t))))])
+         (syntax/loc stx (tactic-list->multitactic (list c/loc ...))))]))
 
 
   (define/contract (then-l** tac . tacss)
@@ -145,16 +152,12 @@
     (->* ((or/c tactic/c (promise/c tactic/c)))
          #:rest (listof (or/c tactic/c (promise/c tactic/c)))
          tactic/c)
-    (displayln `(then* ,tac . ,tacs))
     (cond
       [(pair? tacs)
-       (displayln `(then*-1))
        (tactic (seq (force tac)
                     (multitactic (lambda (i)
-                                   (displayln `(found ,i))
                                    (apply then* (car tacs) (cdr tacs))))))]
       [else
-       (displayln `(then*-2 ,tac))
        (force tac)]))
 
   (define-syntax (then stx)
@@ -178,7 +181,6 @@
   (define/contract (emit out-stx)
     (-> syntax? tactic/c)
     (tactic (lambda (hole make-subgoal)
-              (displayln `(emitting ,out-stx))
               (seal-lcfish-test (refine hole out-stx)))))
 
   (define/contract (fail message . args)
@@ -186,7 +188,6 @@
     (tactic (lambda (hole make-subgoal)
               (define h (get-hole-handler hole))
               (define loc (get-hole-loc hole))
-              (displayln `( failing ,(apply format message args)))
               (h (make-exn:fail:tactics (apply format message args) (current-continuation-marks) hole loc)))))
 
   ;; Transform a multitactic to first replace the current handler. This is used to cut off
@@ -212,7 +213,6 @@
          #:rest (listof (or/c tactic/c (promise/c tactic/c)))
          tactic/c)
     (tactic (lambda (hole make-subgoal)
-              (displayln `(try* ,tac . ,alts))
               (cond
                 [(pair? alts)
                  (define h (get-hole-handler hole))
@@ -221,7 +221,6 @@
                                ((force tac)
                                 (set-handler hole k)
                                 (use-handler h make-subgoal))))])
-                   (displayln `(res ,res))
                    (if (exn:fail? res)
                        ((apply try* alts) hole make-subgoal)
                        res))]
@@ -241,10 +240,11 @@
          (try* tacs/locs ...)))])))
 
 (begin-for-syntax
-  (define/contract ((call-with-goal tac) hole make-subgoal)
+  (define/contract (call-with-goal tac)
     (-> (-> any/c (or/c tactic/c (promise/c tactic/c)))
         tactic/c)
-    ((tac (get-hole-goal hole)) hole make-subgoal))
+    (tactic (lambda (hole make-subgoal)
+              ((tac (get-hole-goal hole)) hole make-subgoal))))
 
   (define-syntax (with-goal stx)
     (syntax-case stx ()
@@ -282,7 +282,6 @@
 
 (begin-for-syntax
   (define (((debug (message "")) i) hole make-hole)
-    (displayln `(,message ,(get-hole-loc hole) ,(get-hole-tactic hole) ,(get-hole-goal hole)))
     ((skip i) hole make-hole))
 
   (define-stamp lcfish-test))
@@ -320,10 +319,8 @@
     (define/contract plus
       tactic/c
       (tactic (lambda (hole k)
-                (displayln 'plus)
                 (define h1 (subgoal-with-tactic hole #f (k 0)))
                 (define h2 (subgoal-with-tactic hole #f (k 1)))
-                (displayln `(plus-got-goals ,(k 0) ,(k 1)))
                 (seal-lcfish-test (refine hole #`(+ #,h1 #,h2)))))))
 
   
@@ -396,7 +393,6 @@
 
   (define-for-syntax at-most-two-plus
     (tactic (procedure-rename (lambda (hole new-hole)
-                                (displayln `(at-most-two-plus ,counter))
                                 (if (> counter 1)
                                     ((fail "no more plus") hole new-hole)
                                     (begin (set! counter (+ counter 1))

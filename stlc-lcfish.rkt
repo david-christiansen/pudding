@@ -28,7 +28,7 @@
 (define-type String)
 (define-type →)
 
- 
+
 (define-for-syntax (type=? t1 t2)
   (syntax-case t1 (Int String →)
     [Int (and (identifier? t2)
@@ -74,14 +74,14 @@
   (define old-hole (syntax-property stx 'old-hole))
   (define next-hole (syntax-property stx 'next-hole))
   (syntax-case stx ()
-    [(_ x a)
-     (next-hole old-hole (⊢ (cons (list #'x #'a #t) H) G)) ]))
+    [(_ x a i)
+     (subgoal-with-tactic old-hole (⊢ (cons (list #'x #'a #t) H) G) (next-hole (syntax->datum #'i)))]))
 
-(define-for-syntax (make-assumption-hole old-hole next-hole x a H G)
+(define-for-syntax (make-assumption-hole old-hole next-hole i x a H G)
   (syntax-property
    (syntax-property
     (syntax-property
-     #`(assumption-hole #,x #,a) 
+     #`(assumption-hole #,x #,a #,i)
      'next-hole next-hole)
     'goal (⊢ H G))
    'old-hole old-hole))
@@ -110,7 +110,7 @@
   ;; In this file, just throw exceptions instead of accumulating them.
   ;; This is for testing purposes.
   (basic-handler (lambda (exn) (raise exn)))
-  
+
   (tactic-info-hook
    (tooltip-info
     (match-lambda [(⊢ H G)
@@ -126,7 +126,7 @@
                                 (syntax->datum x)
                                 (syntax->datum t)))))
                     (format "⊢ ~a" (syntax->datum G)))])))
-  
+
   (define/contract (guard-goal pred tac)
     (-> (-> ⊢? any/c) tactic/c tactic/c)
     (lambda (hole make-hole)
@@ -165,20 +165,21 @@
                                       H
                                       #'b))
           )
-    (lambda (hole make-hole)
-      (match-define (⊢ H G) (get-hole-goal hole))
-      (syntax-case G (→)
-        [(→ a b)
-         ((emit #`(lambda (#,x)
-                    #,(make-assumption-hole hole
-                                            make-hole
-                                            (datum->syntax #'here x)
-                                            #'a
-                                            H
-                                            #'b)))
-          hole make-hole)]
-        [t
-         ((fail (format "Not an arrow: ~a" (syntax->datum G))) hole make-hole)])))
+    (tactic (lambda (hole make-hole)
+              (match-define (⊢ H G) (get-hole-goal hole))
+              (syntax-case G (→)
+                [(→ a b)
+                 ((emit #`(lambda (#,x)
+                            #,(make-assumption-hole hole
+                                                    make-hole
+                                                    0
+                                                    (datum->syntax #'here x)
+                                                    #'a
+                                                    H
+                                                    #'b)))
+                  hole make-hole)]
+                [t
+                 ((fail (format "Not an arrow: ~a" (syntax->datum G))) hole make-hole)]))))
 
   (define repeat-string
     (rule (⊢ H G)
@@ -189,43 +190,41 @@
           #'(apply string-append
                    (for/list ([n (in-range 0 count)])
                      str)))))
-  
+
   (define/contract (assumption n)
     (-> exact-nonnegative-integer? tactic/c)
-    (lambda (hole make-hole)
-      (match-define (⊢ H G) (get-hole-goal hole))
-      (if (>= n (length H))
-          ((fail "Not enough hypotheses") hole make-hole)
-          (match-let ([(list x t safe?) (list-ref H n)])
-            (cond [(not (type=? t G))
-                   ((fail (format "Wrong goal type. Expected ~a, got ~a" G t))
-                    hole make-hole)]
-                  [safe? ((emit x) hole make-hole)]
-                  [else
-                   (define where #`(srcloc '#,(syntax-source x)
-                                           '#,(syntax-line x)
-                                           '#,(syntax-column x)
-                                           '#,(syntax-position x)
-                                           '#,(syntax-span x)))
-                   ((emit #`(contract #,(type->contract t)
-                                      #,x
-                                      #,(string-append "assumption " (symbol->string (syntax-e x)) " in proof")
-                                      'neg-blame
-                                      '#,x
-                                      #,where))
-                    hole make-hole)])))))
+    (tactic (lambda (hole make-hole)
+              (match-define (⊢ H G) (get-hole-goal hole))
+              (if (>= n (length H))
+                  ((fail "Not enough hypotheses") hole make-hole)
+                  (match-let ([(list x t safe?) (list-ref H n)])
+                    (cond [(not (type=? t G))
+                           ((fail (format "Wrong goal type. Expected ~a, got ~a" G t))
+                            hole make-hole)]
+                          [safe? ((emit x) hole make-hole)]
+                          [else
+                           (define where #`(srcloc '#,(syntax-source x)
+                                                   '#,(syntax-line x)
+                                                   '#,(syntax-column x)
+                                                   '#,(syntax-position x)
+                                                   '#,(syntax-span x)))
+                           ((emit #`(contract #,(type->contract t)
+                                              #,x
+                                              #,(string-append "assumption " (symbol->string (syntax-e x)) " in proof")
+                                              'neg-blame
+                                              '#,x
+                                              #,where))
+                            hole make-hole)]))))))
 
   (define/contract (plus n)
     (-> exact-nonnegative-integer? tactic/c)
-    (lambda (hole make-subgoal)
-      (match-define (⊢ H G) (get-hole-goal hole))
-      (if (not (type=? G #'Int))
-          ((fail (format "Type not Int: ~a" G)) hole make-subgoal)
-          ((emit #`(+ #,@(for/list ([h (in-producer (lambda ()
-                                                      (make-subgoal hole (⊢ H #'Int))))]
-                                    [i (in-range n)])
-                           h)))
-           hole make-subgoal))))
+    (rule (⊢ H G)
+          #:seal seal-stlc
+          #:when (type=? G #'Int)
+          (with-syntax ([(goal ...)
+                         (for/list ([i (in-range n)])
+                           (subgoal (⊢ H #'Int)))])
+            #'(+ goal ...))))
 
   (define/contract strlen
     tactic/c
@@ -240,7 +239,7 @@
 
   (define ((emit stx) h make-subgoal)
     (seal-stlc (refine h stx)))
-  
+
   (define-splicing-syntax-class hyps-option
     (pattern (~seq #:hyps [(x:id t:expr) ...])
              #:with hyps #'[(x t) ...])
@@ -263,7 +262,7 @@
 
 
 (module+ test
-  
+
   (check-equal?
    (run-script #:goal Int
                (int-intro 3))
@@ -274,7 +273,7 @@
                 #:goal Int
                 (assumption 0)))
   (check-equal? (id 4) 4)
-  
+
   ;; In this example, the x in the hypotheses list is precisely the
   ;; same binding as the x in the lambda. This lets us include tactic
   ;; scripts in ordinary programs, and switch program construction
@@ -283,7 +282,7 @@
   (define (f x)
     (run-script #:hyps [(x Int)]
                 #:goal Int
-                skip
+                (skip 0)
                 (then-l (plus 2)
                         [(assumption 0)
                          (int-intro 1)])))
@@ -302,7 +301,7 @@
   (for ([i (in-range 0 100)])
     (check-exn #rx"Wrong goal type."
                (thunk (g i))))
-  
+
   ;; Identifiers must match:
   (define (h x)
     (convert-compile-time-error
@@ -325,7 +324,7 @@
   (define-for-syntax (repeat t)
     (try (then t
                (delay (repeat t)))
-         skip))
+         (skip 0)))
 
   (define (length-+ str num)
     (run-script #:hyps ((str String) (num Int))
@@ -334,16 +333,16 @@
                         ((then strlen
                                (assumption 1))
                          (assumption 0)))))
-  
+
   (define add
     (run-script #:goal (→ Int (→ Int Int))
                 (repeat (→-intro))
-                (→-intro 'z)
+                ;(→-intro 'z) ;; should fail!
                 (try (repeat (→-intro))
-                     skip)
+                     (skip 0))
                 (try (repeat (→-intro))
-                     skip)
-                   
+                     (skip 0))
+
                 ;(string-intro "hey")
                 (then-l (plus 2)
                         [(assumption 0)

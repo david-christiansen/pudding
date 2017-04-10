@@ -341,9 +341,10 @@
     [(quote (~or x:str x:number)) (~a (syntax #'e))]
     [other (~a (syntax->datum #'other))]))
 
-(define-for-syntax (todo hole make-hole)
-  ((fail (dump-goal (get-hole-goal hole)))
-   hole make-hole))
+(define-for-syntax todo
+  (tactic (lambda (hole make-hole)
+            ((fail (dump-goal (get-hole-goal hole)))
+             hole make-hole))))
 
 ;; For showing error messages etc
 (define-for-syntax (unexpand stx) stx
@@ -1062,7 +1063,7 @@
      [before (then* t
                     (match-goal*
                      [after #:when (equal-goal? before after) (fail "goal did not change")]
-                     [_ #:when #t skip]))]))
+                     [_ #:when #t (skip 0)]))]))
   )
 
 (module+ test
