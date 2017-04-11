@@ -356,4 +356,5 @@
                          (then-l repeat-string
                                  ((then (int-intro 3))
                                   (then (string-intro "badger "))))))
+  (check-equal? b3 "badger badger badger ")
   )
