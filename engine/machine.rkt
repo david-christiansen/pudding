@@ -15,19 +15,22 @@
          (struct-out ORELSE-frame)
          LCF-frame?)
 
-;; Abstract syntax of core tactic language
+;; Abstract syntax of core tactic language. Nodes in the AST may,
+;; however, be lazily generated, allowing for circular tactic
+;; programs.
 (struct LCF () #:transparent)
 (struct ID LCF () #:transparent)
 (struct THEN LCF (first second) #:transparent)
 (struct THENL LCF (first seconds) #:transparent)
 (struct ORELSE LCF (tactic fallback) #:transparent)
 (struct FAIL LCF (message) #:transparent)
-;; Here, tactic is a (-> goal (-> nat goal stx) stx)
+;; Here, tactic is a (-> hole-stx (-> nat goal hole-stx) sealed-hole-stx)
 (struct TACTIC LCF (tactic) #:transparent)
 
 ;; The state of the machine has two parts: an explicit machine state,
-;; and an implicit context given by macro expansion.
-;; Here's the explicit state.
+;; and an implicit context given by macro expansion. The continuation
+;; is given as a list of frames.
+;; Here's the explicit part of the state.
 (struct LCF-state (control continuation goal) #:transparent)
 
 ;; Continuation frames

@@ -1,14 +1,17 @@
 #lang racket/base
 (require (for-syntax racket/base racket/generator racket/contract racket/sequence racket/promise racket/match
                      racket/function
+                     (for-syntax syntax/parse)
                      (for-syntax racket/base))
          racket/stxparam
          (for-syntax "engine/proof-state.rkt")
          (for-syntax "seal.rkt")
-         (for-syntax "engine/refinement.rkt")
+         
+         (for-syntax "engine/machine.rkt")
          "engine/hole.rkt")
 
 (provide
+ #;
  (for-syntax skip fail try try* then then* then-l then-l* tactic/c subgoal-with-tactic basic-proof-state
              no-more-tactics-hook make-skip debug
              with-goal match-goal match-goal*)
@@ -48,6 +51,7 @@
 
 ;; Create a syntax object that is a hole, and will run the provided tactic.
 (begin-for-syntax
+  #;
   (define/contract (subgoal-with-tactic old-hole new-goal tac)
     (-> hole? any/c tactic/c syntax?)
     (set-goal (set-tactic old-hole tac) new-goal))
@@ -55,158 +59,43 @@
 
   
   ;; A tactic that does nothing.
-  (define/contract (skip hole make-subgoal)
-    tactic/c
-    ((get-skip-tac hole) hole make-subgoal))
+  (define skip
+    (ID))
 
-  (define/contract ((make-skip seal) hole make-subgoal)
-    (-> (-> any/c sealed?) tactic/c)
-    (call-with-continuation-barrier
-     (thunk
-      (seal (refine hole (make-subgoal hole (get-hole-goal hole)))))))
-
-  (define (in-forever val)
-    (in-cycle (in-value val)))
-  
-  (define/contract ((then-l** tac . tacs) hole make-subgoal)
-    (->* ((or/c tactic/c (promise/c tactic/c)))
-         #:rest (listof (sequence/c (or/c tactic/c (promise/c tactic/c))))
-         tactic/c)
-    (cond
-      [(pair? tacs)
-       (define inners
-         (generator ()
-           (for ([next-tactic
-                  (in-sequences (car tacs)
-                                (in-forever skip))])
-             (yield (lambda (old-hole new-goal)
-                      (subgoal-with-tactic
-                       old-hole
-                       new-goal
-                       (lambda (hole-stx _)
-                         ((apply then-l** next-tactic (cdr tacs))
-                          hole-stx
-                          make-subgoal))))))))
-       (define inner-next (lambda (old-hole new-goal) ((inners) old-hole new-goal)))
-       ((force tac) hole inner-next)]
-      [else
-       ((force tac) hole make-subgoal)]))
-  
-  (define-syntax (then-l* stx)
-    (syntax-case stx ()
-      [(_ tac1 (tac2 ...) ...)
-       (syntax/loc stx
-         (then-l** tac1 (list tac2 ...) ...))]))
-  
   (define-syntax (then-l stx)
-    (syntax-case stx ()
-      [(_ tac1 (tac2 ...) ...)
-       (let ([tactics/loc
-              (for/list ([ts (syntax->list #'((tac2 ...) ...))])
-                (quasisyntax/loc ts
-                  (list #,@(for/list ([t (syntax->list ts)])
-                             (quasisyntax/loc t
-                               (tactic/loc #,t #,(quasisyntax/loc t #'#,t)))))))])
-       (quasisyntax/loc stx
-         (then-l** (tactic/loc tac1 #,(quasisyntax/loc #'tac1 #'#,#'tac1))
-                  #,@tactics/loc)))]))
+    (syntax-parse stx
+      [(_ t (ts ...)) #'(THENL t (list ts ...))]
+      [(_ t (ts ...) (ts2 ...) ...) #'(then-l (THENL t (list ts ...)) (ts2 ...) ...)]))
 
-  ;; If tacs is empty, just run tac. Otherwise, run tac, with
-  ;; (then . tacs) running in each subgoal.
-  (define/contract ((then* tac . tacs) hole make-subgoal)
-    (->* ((or/c tactic/c (promise/c tactic/c)))
-         #:rest (listof (or/c tactic/c (promise/c tactic/c)))
-         tactic/c)
-    (cond
-      [(pair? tacs)
-       ((force tac)
-        hole
-        (lambda (old-hole new-goal)
-          (subgoal-with-tactic
-           old-hole
-           new-goal
-           (procedure-rename
-            (lambda (hole m-s)
-              ((apply then* tacs)
-               hole
-               make-subgoal))
-            (string->symbol (format "~a" tacs))))))]
-      [else
-       ((force tac) hole make-subgoal)]))
-
-  
   (define-syntax (then stx)
-    (syntax-case stx ()
-       [(_ tac ...)
-        (with-syntax ([(tacs/locs ...)
-                       (for/list ([t (syntax->list #'(tac ...))])
-                         (quasisyntax/loc t
-                           (tactic/loc #,t #,(quasisyntax/loc t #'#,t))))])
-          (quasisyntax/loc stx
-            (then* tacs/locs ...)))]))
-  
-  (define/contract ((log message) hole make-hole)
-    (-> any/c tactic/c)
-    (println message)
-    (skip hole make-hole))
+    (syntax-parse stx
+      [(_ tac) #'tac]
+      [(_ tac1 tac2) #'(THEN tac1 tac2)]
+      [(_ tac1 tac2 tac ...) #'(THEN tac1 (then tac2 tac ...))]))
 
   ;; Emit a particular piece of syntax.
-  (define/contract ((emit out-stx) hole make-subgoal)
-    (-> syntax? tactic/c)
+  (define (emit out-stx)
     #;(displayln `(emitting ,out-stx))
-    (seal-lcfish-test (refine hole out-stx)))
+    (TACTIC (lambda (hole k) (seal-lcfish-test out-stx))))
 
-  (define/contract ((fail message . args) hole make-subgoal)
-    (->* (string?) () #:rest (listof any/c) tactic/c)
-    (define h (get-hole-handler hole))
-    (define loc (get-hole-loc hole))
-    (h (make-exn:fail:tactics (apply format message args) (current-continuation-marks) hole loc)))
-
-  ;; Transform a make-hole procedure to first replace the current handler. This is used to cut off
-  ;; part of the proof tree at the end of a try.
-  (define (use-handler h make-subgoal)
-    (lambda (old-hole new-goal)
-      (set-handler (make-subgoal old-hole new-goal) h)))
-  
-  ;; Attempt to continue with tac, using alts in order if it fails. First, the proof script is
-  ;; parameterized by the handler, but its continuation is then set up to de-install the handler.
-  ;; Because we must manually manage the dynamic extent of handlers, this is not done with normal
-  ;; exceptions, but instead with let/ec.
-  (define/contract ((try* tac . alts) hole make-subgoal)
-    (->* ((or/c tactic/c (promise/c tactic/c)))
-         #:rest (listof (or/c tactic/c (promise/c tactic/c))) tactic/c)
-    (cond
-      [(pair? alts)
-       (define h (get-hole-handler hole))
-       (let ([res (let/ec k
-                    (local-expand-sealed 
-                     ((force tac)
-                      (set-handler hole k)
-                      (use-handler h make-subgoal))))])
-         (if (exn:fail? res)
-             ((apply try* alts) hole make-subgoal)
-             res))]
-      [else
-       ((force tac) hole make-subgoal)])))
+  (define (fail message . args)
+    (FAIL (apply format message args))))
 
 (begin-for-syntax
-  (define-syntax (try stx)
-    (syntax-case stx ()
-      [(_ tac ...)
-       (with-syntax ([(tacs/locs ...)
-                      (for/list ([t (syntax->list #'(tac ...))])
-                        (quasisyntax/loc t
-                          (tactic/loc #,t
-                                      #,(quasisyntax/loc t #'#,t))))])
-       (quasisyntax/loc stx
-         (try* tacs/locs ...)))])))
+  (define-syntax try
+    (syntax-rules ()
+      [(_ t) t]
+      [(_ t1 t2) (ORELSE t1 t2)]
+      [(_ t1 t2 t3 ...)
+       (ORELSE t1 (try t2 t3 ...))])))
 
 (begin-for-syntax
+  #;
   (define/contract ((call-with-goal tac) hole make-subgoal)
     (-> (-> any/c (or/c tactic/c (promise/c tactic/c)))
         tactic/c)
     ((tac (get-hole-goal hole)) hole make-subgoal))
-  
+  #;
   (define-syntax (with-goal stx)
     (syntax-case stx ()
       [(_ g e ...)
@@ -214,7 +103,7 @@
          (call-with-goal
           (lambda (g)
             e ...)))]))
-  
+  #;
   (define-syntax (match-goal* stx)
     (syntax-case stx ()
       [(_ (pat #:when w body ...) ...)
@@ -227,7 +116,7 @@
       [(_ (pat body ...) ...)
        (syntax/loc stx
          (match-goal* (pat #:when #t body ...) ...))]))
-  
+  #;
   (define-syntax (match-goal stx)
     (syntax-case stx ()
       [(_ (pat #:when w body ...) ...)
@@ -242,6 +131,7 @@
          (match-goal (pat #:when #t body ...) ...))])))
 
 (begin-for-syntax
+  #;
   (define ((debug (message "")) hole make-hole)
     (displayln `(,message ,(get-hole-loc hole) ,(get-hole-tactic hole) ,(get-hole-goal hole)))
     (skip hole make-hole))
@@ -254,8 +144,9 @@
      #`(let ()
          (define-syntax (go s)
            (init-hole unseal-lcfish-test
-                      (make-skip seal-lcfish-test)
-                      (then tacs ...) #f #f))
+                      (then tacs ...)
+                      #f
+                      #f))
          (go))]))
 
 
@@ -275,13 +166,14 @@
           (try (delay (repeat t))
                skip)))
 
-  (define-for-syntax (plus hole make-subgoal)
-    (define h1 (make-subgoal hole #f))
-    (define h2 (make-subgoal hole #f))
-    (seal-lcfish-test (refine hole #`(+ #,h1 #,h2))))
+  (define-for-syntax plus
+    (TACTIC (lambda (hole make-subgoal)
+              (define h1 (make-subgoal 0 #f))
+              (define h2 (make-subgoal 1 #f))
+              (seal-lcfish-test #`(+ #,h1 #,h2)))))
 
   
-  
+
   (check-equal?
    (run-script #;(debug "foo")
               (try (fail "fnord")
@@ -297,21 +189,22 @@
   (define seven
     (run-script (emit #'7)))
   (check-equal? seven 7)
-
+  
   (define four
     (run-script plus
                 (emit #'2)))
   (check-equal? four 4)
-
+  
   (define eight
     (run-script plus plus (emit #'2)))
   (check-equal? eight 8)
-
+  
   (define eight-more
     (run-script (then plus (then plus
                                  (then (emit #'2) skip)))))
   (check-equal? eight-more 8)
 
+  
   (define three
     (run-script (then-l plus
                         ((emit #'2) (emit #'1)))))
@@ -332,30 +225,34 @@
                      (fail "nope"))))
   (check-equal? another-four 4)
 
+#;
   (define another-three
     (run-script (then-l plus
                         ((emit #'2))
                         ((emit #'1)))))
 
-  (define-for-syntax counter 0)
+  #;(define-for-syntax counter 0)
+#;
   (define-for-syntax (at-most-two-plus hole new-hole)
     (if (> counter 1)
         ((fail "no more plus") hole new-hole)
         (begin (set! counter (+ counter 1))
                (plus hole new-hole))))
   
+  #;
   (define foo
     (run-script (then plus
                       (then plus plus)
                       plus plus
                       (repeat (emit #'1)))))
-  (check-equal? foo 32)
+#;  (check-equal? foo 32)
 
   
+  #;
   (define bar (run-script (then (repeat at-most-two-plus)
                                 (repeat (emit #'1)))))
-  (check-equal? bar 3) ;; (+ (+ 1 1) 1)
-)
+#;  (check-equal? bar 3) ;; (+ (+ 1 1) 1)
+  )
 
 
 ;; Local Variables:

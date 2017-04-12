@@ -1,9 +1,13 @@
 #lang racket/base
-(require racket/match racket/promise (for-template racket/base) "refinement.rkt" "../stx-utils.rkt")
+(require racket/match
+         racket/promise
+         (for-template racket/base)
+         "refinement.rkt"
+         "machine.rkt"
+         "../stx-utils.rkt")
 
 (provide basic-handler basic-proof-state proof-state? no-more-tactics-hook
-         set-tactic set-goal set-handler set-loc set-basic-state
-         get-hole-tactic get-hole-handler get-hole-loc get-hole-goal get-skip-tac
+         get-machine-state set-machine-state set-basic-state
          unseal/hole refine)
 
 (define proof-state-prop 'proof-state)
@@ -29,91 +33,57 @@
      (raise e))))
   
 (struct proof-state
-  (tactic
+  (machine-state
    loc
-   handler
-   goal
-   unseal
-   skip)
+   unseal)
   #:transparent)
 
 
 (define (get-proof-state stx)
-  (leftmost (syntax-property stx 'proof-state)))
+  (leftmost (syntax-property stx proof-state-prop)))
 
 (define (set-proof-state stx st)
-  (syntax-property stx 'proof-state st))
+  (syntax-property stx proof-state-prop st))
 
 (define ((update-proof-state f) stx)
   (define old-state (get-proof-state stx))
   (set-proof-state stx (f old-state)))
 
-(define (basic-proof-state unseal skip-tac)
-  (proof-state (lambda (h n-t)
-                 ((no-more-tactics-hook) h))
+(define (get-machine-state stx)
+  (match (get-proof-state stx)
+    [(proof-state m _ _) m]))
+
+(define (set-machine-state stx m)
+  (match (get-proof-state stx)
+    [(proof-state _ loc unseal)
+     (set-proof-state stx (proof-state m loc unseal))]))
+
+(define ((update-machine-state f) stx)
+  (set-machine-state (f (get-machine-state stx))))
+
+(define (basic-machine-state goal tactic)
+  (LCF-state (THEN tactic
+                   (TACTIC (lambda (h next)
+                             ((no-more-tactics-hook) h))))
+             '()
+             goal))
+
+(define (basic-proof-state tactic unseal)
+  (proof-state (basic-machine-state #f tactic)
                #f
-               (lambda (e)
-                 ((basic-handler) e))
-               #f
-               unseal
-               skip-tac))
+               unseal))
 
-(define (set-basic-state h unseal skip-tac)
-  (set-proof-state h (basic-proof-state unseal skip-tac)))
-
-(define ((proof-state-with-tactic tac) st)
-  (match st
-    [(proof-state _ loc h g unseal skip-tac)
-     (proof-state tac loc h g unseal skip-tac)]))
-
-(define ((proof-state-with-loc loc) st)
-  (match st
-    [(proof-state tac _ h g unseal skip-tac)
-     (proof-state tac loc h g unseal skip-tac)]))
-
-(define ((proof-state-with-handler h) st)
-  (match st
-    [(proof-state tac loc _ g unseal skip-tac)
-     (proof-state tac loc h g unseal skip-tac)]))
-
-(define ((proof-state-with-goal g) st)
-  (match st
-    [(proof-state tac loc h _ unseal skip-tac)
-     (proof-state tac loc h g unseal skip-tac)]))
-
-(define (set-tactic hole tac)
-  ((update-proof-state (proof-state-with-tactic tac)) hole))
-
-(define (set-loc hole loc)
-  ((update-proof-state (proof-state-with-loc loc)) hole))
-
-(define (set-handler hole h)
-  ((update-proof-state (proof-state-with-handler h)) hole))
-
-(define (set-goal hole g)
-  ((update-proof-state (proof-state-with-goal g)) hole))
-
-(define (get-hole-tactic h)
-  (proof-state-tactic (get-proof-state h)))
-
-(define (get-hole-handler h)
-  (proof-state-handler (get-proof-state h)))
-
-(define (get-hole-goal h)
-  (proof-state-goal (get-proof-state h)))
-
-(define (get-hole-loc h)
-  (proof-state-loc (get-proof-state h)))
-
-(define (get-skip-tac h)
-  (proof-state-skip (get-proof-state h)))
+(define (set-basic-state hole-stx tactic unseal)
+  (set-proof-state hole-stx (basic-proof-state tactic unseal)))
 
 (define (unseal/hole h r)
   (match (get-proof-state h)
-    [(proof-state _ _ _ _ u _) (u r)]))
+    [(proof-state _ _ u) (u r)]))
 
+(define (get-hole-loc hole-stx)
+  (proof-state-loc (get-proof-state hole-stx)))
 
 (define (refine hole-stx new-stx)
   (refinement new-stx
-              (get-hole-goal hole-stx)
+              (LCF-state-goal (get-machine-state hole-stx))
               (get-hole-loc hole-stx)))
