@@ -46,7 +46,7 @@
 (define-syntax (hole stx)
   (match-define (LCF-state control cont goal)
     (get-machine-state stx))
-  (define sealed-result
+  (define result
     (let internal-step ([st (get-machine-state stx)])
       (displayln st)
       (match st
@@ -80,34 +80,40 @@
                                                   goal))
                                       'expression
                                       null)))
-           [(cons 'ok out) out]
+           [(cons 'ok out)
+            ;; NB: This is not sealed, because the hole that is local-expanded does unsealing
+            out]
            [(cons 'failed err)
             (internal-step (LCF-state t2 cont goal))])]
         [(LCF-state (FAIL message) cont goal)
          ((get-handler cont) message)]
         [(LCF-state (TACTIC fun) cont goal)
-         (fun stx
-              (let pop ([c cont])
-                (match c
-                  [(list) (lambda (_ goal) ((no-more-tactics-hook) stx))]
-                  [(list-rest (THEN-frame t2) more)
-                   (lambda (_ new-goal)
-                     (set-machine-state stx (LCF-state t2 more new-goal)))]
-                  [(list-rest (THENL-frame t2s) more)
-                   (lambda (i new-goal)
-                     (displayln `(here it is ,i ,(list-ref t2s i)))
-                     (set-machine-state
-                      stx
-                      (LCF-state
-                       (if (< i (length t2s))
-                           (list-ref t2s i)
-                           (ID))
-                       more
-                       new-goal)))]
-                  [(list-rest (ORELSE-frame _) more)
-                   (pop more)])))])))
-  (define result (unseal/hole stx sealed-result))
-  (displayln `(emitting ,sealed-result --> ,result))
+         ;; Here, we unseal, because refinement rules do seal returns.
+         (unseal/hole
+          stx
+          (fun stx
+               (let pop ([c cont])
+                 (match c
+                   [(list) (lambda (_ goal) ((no-more-tactics-hook) stx))]
+                   [(list-rest (THEN-frame t2) more)
+                    (lambda (_ new-goal)
+                      (set-machine-state stx (LCF-state t2 more new-goal)))]
+                   [(list-rest (THENL-frame t2s) more)
+                    (lambda (i new-goal)
+                      (displayln `(choices ,t2s))
+                      #;(displayln `(here it is ,i ,(list-ref t2s i)))
+                      (set-machine-state
+                       stx
+                       (LCF-state
+                        (if (< i (length t2s))
+                            (list-ref t2s i)
+                            (ID))
+                        more
+                        new-goal)))]
+                   [(list-rest (ORELSE-frame _) more)
+                    (pop more)]))))]
+        [(LCF-state (? procedure? th) cont goal)
+         (internal-step (LCF-state (th) cont goal))])))
   #;((tactic-info-hook) (refinement-loc result) (refinement-goal result))
   result)
 

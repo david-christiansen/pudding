@@ -162,9 +162,10 @@
         (format "this is a tooltip! (~a)" (unbox tooltip-counter))))))
   
   (define-for-syntax (repeat t)
-    (then t
-          (try (delay (repeat t))
-               skip)))
+    (lambda ()
+      (then t
+            (try (repeat t)
+                 skip))))
 
   (define-for-syntax plus
     (TACTIC (lambda (hole make-subgoal)
@@ -225,33 +226,33 @@
                      (fail "nope"))))
   (check-equal? another-four 4)
 
-#;
   (define another-three
     (run-script (then-l plus
                         ((emit #'2))
                         ((emit #'1)))))
+  (check-equal? another-three 3)
 
-  #;(define-for-syntax counter 0)
-#;
-  (define-for-syntax (at-most-two-plus hole new-hole)
+  (define-for-syntax counter 0)
+
+  (define-for-syntax (at-most-two-plus)
     (if (> counter 1)
-        ((fail "no more plus") hole new-hole)
+        (fail "no more plus")
         (begin (set! counter (+ counter 1))
-               (plus hole new-hole))))
+               plus)))
   
-  #;
+
   (define foo
     (run-script (then plus
                       (then plus plus)
                       plus plus
                       (repeat (emit #'1)))))
-#;  (check-equal? foo 32)
+  (check-equal? foo 32)
 
   
-  #;
+
   (define bar (run-script (then (repeat at-most-two-plus)
                                 (repeat (emit #'1)))))
-#;  (check-equal? bar 3) ;; (+ (+ 1 1) 1)
+  (check-equal? bar 3) ;; (+ (+ 1 1) 1)
   )
 
 
