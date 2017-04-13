@@ -7,7 +7,7 @@
          "../stx-utils.rkt")
 
 (provide basic-handler basic-proof-state proof-state? no-more-tactics-hook
-         get-machine-state set-machine-state set-basic-state
+         get-machine-state set-machine-state set-basic-state get-hole-goal get-hole-loc
          unseal/hole refine)
 
 (define proof-state-prop 'proof-state)
@@ -68,12 +68,12 @@
              goal
              loc))
 
-(define (basic-proof-state tactic unseal)
-  (proof-state (basic-machine-state #f tactic #f)
+(define (basic-proof-state unseal tactic goal loc)
+  (proof-state (basic-machine-state goal tactic loc)
                unseal))
 
-(define (set-basic-state hole-stx tactic unseal)
-  (set-proof-state hole-stx (basic-proof-state tactic unseal)))
+(define (set-basic-state hole-stx unseal tactic goal loc)
+  (set-proof-state hole-stx (basic-proof-state unseal tactic goal loc)))
 
 (define (unseal/hole h r)
   (match (get-proof-state h)
@@ -81,6 +81,9 @@
 
 (define (get-hole-loc hole-stx)
   (LCF-state-loc (proof-state-machine-state (get-proof-state hole-stx))))
+
+(define (get-hole-goal hole-stx)
+  (LCF-state-goal (proof-state-machine-state (get-proof-state hole-stx))))
 
 (define (refine hole-stx new-stx)
   (refinement new-stx

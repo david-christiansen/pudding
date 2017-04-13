@@ -1,9 +1,9 @@
 #lang racket
 
 (require (except-in "lcfish.rkt" run-script)
-         (for-syntax racket/base (for-syntax racket/base))
+         (for-syntax racket/base (for-syntax racket/base syntax/parse))
          "engine/hole.rkt"
-         (for-syntax "engine/proof-state.rkt")
+         (for-syntax "engine/proof-state.rkt" "engine/machine.rkt")
          "tooltip-info.rkt"
          "rule.rkt"
          (for-syntax "seal.rkt")
@@ -52,10 +52,14 @@
       (syntax-parse stx
         [(a-t dom cod)
          #'(app (lambda (x)
-                  (syntax-case x (→)
-                    [(→ a b)
-                     (cons a b)]
-                    [_ #f]))
+                  (define lst (syntax-e x))
+                  (and (pair? x)
+                       (identifier? (car x))
+                       (free-identifier=? (car x) #'→)
+                       (pair? (cdr x))
+                       (pair? (cddr x))
+                       (null? (cdddr x))
+                       (cons (cadr x) (caddr x))))
                 (cons dom cod))]))))
 
 (define-for-syntax (type->contract t)
@@ -127,15 +131,6 @@
                                 (syntax->datum t)))))
                     (format "⊢ ~a" (syntax->datum G)))])))
   
-  (define/contract (guard-goal pred tac)
-    (-> (-> ⊢? any/c) tactic/c tactic/c)
-    (lambda (hole make-hole)
-      (match (get-hole-goal hole)
-        [#f ((fail "No goal found.") hole make-hole)]
-        [g #:when (pred g)
-           (tac hole make-hole)]
-        [g ((fail (format "Wrong goal: ~a ⊢ ~a" (⊢-hyps g) (syntax->datum (⊢-goal g)))) hole make-hole)])))
-
   (define/contract (int-intro i)
     (-> integer? tactic/c)
     (rule (⊢ _ (? (type-is? #'Int)))
@@ -155,30 +150,26 @@
 
   (define/contract (→-intro [x 'x])
     (->* () (symbol?) tactic/c)
-    #;(rule (⊢ H (arrow-type a b))
-          #:seal seal-stlc
-          #`(lambda (#,x)
-              #,(make-assumption-hole hole
-                                      make-hole
-                                      (datum->syntax #'here x)
-                                      #'a
-                                      H
-                                      #'b))
-          )
-    (lambda (hole make-hole)
-      (match-define (⊢ H G) (get-hole-goal hole))
-      (syntax-case G (→)
-        [(→ a b)
-         ((emit #`(lambda (#,x)
-                    #,(make-assumption-hole hole
-                                            make-hole
-                                            (datum->syntax #'here x)
-                                            #'a
-                                            H
-                                            #'b)))
-          hole make-hole)]
-        [t
-         ((fail (format "Not an arrow: ~a" (syntax->datum G))) hole make-hole)])))
+    (TACTIC (lambda (h make-hole fk)
+              (define (nope g)
+                (fk (format "Can't introduce → at goal ~a" g)))
+              (match (get-hole-goal h)
+                [(⊢ H G)
+                 (syntax-case G (→)
+                   [(→ a b)
+                    (let ((dom #'a)
+                          (cod #'b))
+                      (seal-stlc
+                       #`(lambda (#,x)
+                           #,(make-assumption-hole h
+                                                   (lambda (h g)
+                                                     (make-hole 0 h g))
+                                                   (datum->syntax #'here x)
+                                                   dom
+                                                   H
+                                                   cod))))]
+                   [_ (nope G)])]
+                [other (nope other)]))))
 
   (define repeat-string
     (rule (⊢ H G)
@@ -192,40 +183,37 @@
   
   (define/contract (assumption n)
     (-> exact-nonnegative-integer? tactic/c)
-    (lambda (hole make-hole)
-      (match-define (⊢ H G) (get-hole-goal hole))
-      (if (>= n (length H))
-          ((fail "Not enough hypotheses") hole make-hole)
-          (match-let ([(list x t safe?) (list-ref H n)])
-            (cond [(not (type=? t G))
-                   ((fail (format "Wrong goal type. Expected ~a, got ~a" G t))
-                    hole make-hole)]
-                  [safe? ((emit x) hole make-hole)]
-                  [else
-                   (define where #`(srcloc '#,(syntax-source x)
-                                           '#,(syntax-line x)
-                                           '#,(syntax-column x)
-                                           '#,(syntax-position x)
-                                           '#,(syntax-span x)))
-                   ((emit #`(contract #,(type->contract t)
-                                      #,x
-                                      #,(string-append "assumption " (symbol->string (syntax-e x)) " in proof")
+    (TACTIC
+     (lambda (hole make-hole fk)
+       (match-define (⊢ H G) (get-hole-goal hole))
+       (if (>= n (length H))
+           (fk "Not enough hypotheses")
+           (match-let ([(list x t safe?) (list-ref H n)])
+             (cond [(not (type=? t G))
+                    (fk (format "Wrong goal type. Expected ~a, got ~a" G t))]
+                   [safe? ((emit x) hole make-hole)]
+                   [else
+                    (define where #`(srcloc '#,(syntax-source x)
+                                            '#,(syntax-line x)
+                                            '#,(syntax-column x)
+                                            '#,(syntax-position x)
+                                            '#,(syntax-span x)))
+                    (seal-stlc #`(contract #,(type->contract t)
+                                           #,x
+                                           #,(string-append "assumption " (symbol->string (syntax-e x)) " in proof")
                                       'neg-blame
                                       '#,x
-                                      #,where))
-                    hole make-hole)])))))
+                                      #,where))]))))))
 
   (define/contract (plus n)
     (-> exact-nonnegative-integer? tactic/c)
-    (lambda (hole make-subgoal)
-      (match-define (⊢ H G) (get-hole-goal hole))
-      (if (not (type=? G #'Int))
-          ((fail (format "Type not Int: ~a" G)) hole make-subgoal)
-          ((emit #`(+ #,@(for/list ([h (in-producer (lambda ()
-                                                      (make-subgoal hole (⊢ H #'Int))))]
-                                    [i (in-range n)])
-                           h)))
-           hole make-subgoal))))
+    (TACTIC
+     (lambda (hole make-subgoal fk)
+       (match-define (⊢ H G) (get-hole-goal hole))
+       (if (not (type=? G #'Int))
+           (fk (format "Type not Int: ~a" G))
+           (seal-stlc #`(+ #,@(for/list ([i (in-range n)])
+                                (make-subgoal i hole (⊢ H #'Int)))))))))
 
   (define/contract strlen
     tactic/c
@@ -239,7 +227,7 @@
   (define-stamp stlc)
 
   (define ((emit stx) h make-subgoal)
-    (seal-stlc (refine h stx)))
+    (seal-stlc stx))
   
   (define-splicing-syntax-class hyps-option
     (pattern (~seq #:hyps [(x:id t:expr) ...])
@@ -254,7 +242,6 @@
        #`(let-syntax ([go (lambda (s)
                             (init-hole
                              unseal-stlc
-                             (make-skip seal-stlc)
                              (then tactic ...)
                              (⊢ (reverse (list (list #'x #'t #f) ...)) #'g)
                              #'#,stx))])
@@ -323,9 +310,10 @@
     (check-equal? (twice i) (* 2 i)))
 
   (define-for-syntax (repeat t)
-    (try (then t
-               (delay (repeat t)))
-         skip))
+    (lambda ()
+      (try (then t
+                 (repeat t))
+           skip)))
 
   (define (length-+ str num)
     (run-script #:hyps ((str String) (num Int))
@@ -338,7 +326,7 @@
   (define add
     (run-script #:goal (→ Int (→ Int Int))
                 (repeat (→-intro))
-                (→-intro 'z)
+                ;(→-intro 'z)
                 (try (repeat (→-intro))
                      skip)
                 (try (repeat (→-intro))

@@ -13,15 +13,15 @@
        #t))
 
 
-;; A tactic is a procedure that takes the hole on which it is invoked
-;; and a "continuation" procedure that returns tactics for any
-;; subgoals. It returns the output syntax, potentially containing new
-;; holes.
 (define-for-syntax tactic/c
-  (-> hole? (-> exact-nonnegative-integer? hole? any/c hole?) sealed?))
+  (struct/c TACTIC (-> hole?
+                       (-> exact-nonnegative-integer? hole? any/c hole?)
+                       (-> string? any/c) ;; failure continuation
+                       sealed?)))
 
   ;; A "next tactic" procedure that doesn't work. Used at the end of scripts.
 (begin-for-syntax
+  #;
   (define/contract (no-more-tactics old-hole new-goal)
     tactic/c
     (error 'todo)
@@ -100,14 +100,16 @@
                (let pop ([c cont]
                          [l loc])
                  (match c
-                   [(list) (lambda (_ goal loc) ((no-more-tactics-hook) stx))]
+                   [(list)
+                    (lambda (_ the-hole goal)
+                      ((no-more-tactics-hook) the-hole))]
                    [(list-rest (THEN-frame t2) more)
-                    (lambda (_ new-goal)
-                      (set-machine-state stx (LCF-state t2 more new-goal l)))]
+                    (lambda (_ the-hole new-goal)
+                      (set-machine-state the-hole (LCF-state t2 more new-goal l)))]
                    [(list-rest (THENL-frame t2s) more)
-                    (lambda (i new-goal)
+                    (lambda (i the-hole new-goal)
                       (set-machine-state
-                       stx
+                       the-hole
                        (LCF-state
                         (if (< i (length t2s))
                             (list-ref t2s i)
@@ -119,7 +121,8 @@
                     (pop more l)]
                    [(list-rest (LOC-frame old-loc) more)
                     ((tactic-info-hook) loc goal 'out)
-                    (pop more old-loc)]))))]
+                    (pop more old-loc)]))
+               (get-handler cont)))]
         [(LCF-state (? procedure? th) cont goal loc)
          (internal-step (LCF-state (th) cont goal loc))]
         [(LCF-state (LOC where next) cont goal loc)
@@ -129,7 +132,7 @@
 
 
 (define-for-syntax (init-hole unseal tactic goal loc)
-  (set-basic-state #'hole tactic unseal))
+  (set-basic-state #'hole unseal tactic goal loc))
 
 #;
 (define-for-syntax (tactic/loc tac loc)

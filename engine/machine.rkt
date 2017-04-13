@@ -26,7 +26,7 @@
 (struct THENL LCF (first seconds) #:transparent)
 (struct ORELSE LCF (tactic fallback) #:transparent)
 (struct FAIL LCF (message) #:transparent)
-;; Here, tactic is a (-> hole-stx (-> nat goal hole-stx) sealed-hole-stx)
+;; Here, tactic is a (-> hole-stx (-> nat goal hole-stx) (-> string? ⊥) sealed-hole-stx)
 (struct TACTIC LCF (tactic) #:transparent)
 (struct LOC LCF (where tac) #:transparent)
 

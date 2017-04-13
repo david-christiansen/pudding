@@ -1,9 +1,9 @@
 #lang racket/base
 
-(require (for-syntax racket/base racket/match "engine/proof-state.rkt" "goal.rkt"
+(require (for-syntax racket/base racket/match "engine/proof-state.rkt" "goal.rkt" "engine/machine.rkt"
                      (for-syntax racket/base syntax/parse))
-          "lcfish.rkt"
-          (for-syntax racket/contract)
+         "lcfish.rkt"
+         (for-syntax racket/contract)
          racket/match (for-syntax racket/stxparam) racket/control)
 
 (provide (for-syntax subgoal not-applicable rule))
@@ -33,34 +33,41 @@
     (syntax-parse stx
       [(_ goal-pat opts:rule-options result ... last-result)
        (quasisyntax/loc stx
-         (lambda (hole make-subgoal)
-           (struct exn:fail:this-rule exn:fail ()
-             #:extra-constructor-name make-exn:fail:this-rule)
-           (define (sub g) (make-subgoal hole g))
-           (syntax-parameterize ([subgoal (make-rename-transformer #'sub)]
-                                 [not-applicable
-                                  (lambda (nope-stx)
-                                    (syntax-case nope-stx ()
-                                      [(_ msg arg (... ...))
-                                       #'(raise (make-exn:fail:this-rule
-                                                 (format msg arg (... ...))
-                                                 (current-continuation-marks)))]
-                                      [(_)
-                                       #'(raise (make-exn:fail:this-rule
-                                                 (string-append
-                                                  "Not applicable:\n"
-                                                  (proof-goal->string (get-hole-goal hole)))
-                                                 (current-continuation-marks)))]))])
-             (with-handlers ([exn:fail:this-rule?
-                              (lambda (e)
-                                ((fail (exn-message e)) hole make-subgoal))]
-                             [exn:fail:syntax?
-                              (λ (e) ((fail (exn-message e)) hole make-subgoal))])
-               (match (get-hole-goal hole)
-                 [goal-pat #:when opts.when
-                           (contract (λ (x) (not (void? x)))
-                                     (call-with-continuation-barrier
-                                      (lambda () result ... (opts.seal (refine hole last-result))))
-                                     '#,stx
-                                     'the-rule-macro)]
-                 [other ((fail (format "Wrong goal:\n~a" other)) hole make-subgoal)])))))])))
+         (TACTIC
+          (lambda (hole make-subgoal fk)
+            (struct exn:fail:this-rule exn:fail ()
+              #:extra-constructor-name make-exn:fail:this-rule)
+            (define subgoal-count
+              (let ([i (box 0)])
+                (lambda ()
+                  (define j (unbox i))
+                  (set-box! i (add1 j))
+                  j)))
+            (define (sub g) (make-subgoal (subgoal-count) hole g))
+            (syntax-parameterize ([subgoal (make-rename-transformer #'sub)]
+                                  [not-applicable
+                                   (lambda (nope-stx)
+                                     (syntax-case nope-stx ()
+                                       [(_ msg arg (... ...))
+                                        #'(raise (make-exn:fail:this-rule
+                                                  (format msg arg (... ...))
+                                                  (current-continuation-marks)))]
+                                       [(_)
+                                        #'(raise (make-exn:fail:this-rule
+                                                  (string-append
+                                                   "Not applicable:\n"
+                                                   (proof-goal->string (get-hole-goal hole)))
+                                                  (current-continuation-marks)))]))])
+              (with-handlers ([exn:fail:this-rule?
+                               (lambda (e)
+                                 (fk (exn-message e)))]
+                              [exn:fail:syntax?
+                               (λ (e) (fk (exn-message e)))])
+                (match (get-hole-goal hole)
+                  [goal-pat #:when opts.when
+                            (contract (λ (x) (not (void? x)))
+                                      (call-with-continuation-barrier
+                                       (lambda () result ... (opts.seal last-result)))
+                                      '#,stx
+                                      'the-rule-macro)]
+                  [other (fk (format "Wrong goal:\n~a" other))]))))))])))

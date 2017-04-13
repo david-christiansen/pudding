@@ -11,10 +11,10 @@
          "engine/hole.rkt")
 
 (provide
- #;
- (for-syntax skip fail try try* then then* then-l then-l* tactic/c subgoal-with-tactic basic-proof-state
-             no-more-tactics-hook make-skip debug
-             with-goal match-goal match-goal*)
+ 
+ (for-syntax skip fail try #;try* then #;then* then-l #;then-l* tactic/c #;subgoal-with-tactic basic-proof-state
+             no-more-tactics-hook  #;debug
+             #;with-goal #;match-goal #;match-goal*)
  tactic-debug? tactic-debug-hook
  run-script)
 
@@ -79,7 +79,7 @@
   ;; Emit a particular piece of syntax.
   (define (emit out-stx)
     #;(displayln `(emitting ,out-stx))
-    (TACTIC (lambda (hole k) (seal-lcfish-test out-stx))))
+    (TACTIC (lambda (hole k fk) (seal-lcfish-test out-stx))))
 
   (define (fail message . args)
     (FAIL (apply format message args))))
@@ -170,11 +170,13 @@
             (try (repeat t)
                  skip))))
 
-  (define-for-syntax plus
-    (TACTIC (lambda (hole make-subgoal)
-              (define h1 (make-subgoal 0 #f))
-              (define h2 (make-subgoal 1 #f))
-              (seal-lcfish-test #`(+ #,h1 #,h2)))))
+  (begin-for-syntax
+    (define/contract plus
+      tactic/c
+      (TACTIC (lambda (hole-stx make-subgoal fk)
+                (define h1 (make-subgoal 0 hole-stx #f))
+                (define h2 (make-subgoal 1 hole-stx #f))
+                (seal-lcfish-test #`(+ #,h1 #,h2))))))
 
   
 
