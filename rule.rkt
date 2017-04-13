@@ -63,11 +63,12 @@
                                  (fk (exn-message e)))]
                               [exn:fail:syntax?
                                (λ (e) (fk (exn-message e)))])
-                (match (get-hole-goal hole)
+                (define the-goal (get-hole-goal hole))
+                (match the-goal
                   [goal-pat #:when opts.when
                             (contract (λ (x) (not (void? x)))
                                       (call-with-continuation-barrier
-                                       (lambda () result ... (opts.seal last-result)))
+                                       (lambda () result ... (opts.seal the-goal last-result)))
                                       '#,stx
                                       'the-rule-macro)]
                   [other (fk (format "Wrong goal:\n~a" other))]))))))])))

@@ -3,22 +3,28 @@
 (require (for-syntax syntax/define syntax/parse racket/syntax))
 (require "engine/refinement.rkt")
 
-(provide make-stamp define-stamp sealed? local-expand-sealed)
+(provide make-stamp define-stamp sealed?)
 
-(struct sealed (local-expander))
-
-(define (local-expand-sealed s)
-  ((sealed-local-expander s) s))
+(struct sealed ())
 
 (define (make-stamp name)
   (define-values (type ctor pred acc mut)
     (make-struct-type (string->symbol (string-append (symbol->string name) "-theorem"))
-                      struct:sealed 1 0 #f null #f #;(current-inspector) #f '(0) #f name))
-  (define unseal (lambda (x) (acc x 0)))
-  (define (local-expander x)
-    (match-define (refinement stx goal loc) (unseal x))
-    (seal (refinement (local-expand stx 'expression null) goal loc)))
-  (define seal (lambda (x) (ctor local-expander x)))
+                      struct:sealed 2 0 #f null #f #;(current-inspector) #f '(0) #f name))
+  (define unseal-name (string->symbol (format "unseal-~a" name)))
+  (define seal-name (string->symbol (format "seal-~a" name)))
+
+  (define unseal
+    (procedure-rename
+     (lambda (goal x)
+       (if (eq? goal (acc x 1))
+           (acc x 0)
+           (raise-argument-error unseal-name (format "A validation for goal ~a" (acc x 1)) 1 goal x)))
+     unseal-name))
+  (define seal
+    (procedure-rename
+     (lambda (goal x) (ctor x goal))
+     seal-name))
   (values seal unseal))
 
 (define-syntax (define-stamp stx)

@@ -77,7 +77,7 @@
 
 (define (unseal/hole h r)
   (match (get-proof-state h)
-    [(proof-state _ u) (u r)]))
+    [(proof-state (LCF-state _ _ g _) u) (u g r)]))
 
 (define (get-hole-loc hole-stx)
   (LCF-state-loc (proof-state-machine-state (get-proof-state hole-stx))))

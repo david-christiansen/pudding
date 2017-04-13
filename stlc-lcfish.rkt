@@ -153,13 +153,15 @@
     (TACTIC (lambda (h make-hole fk)
               (define (nope g)
                 (fk (format "Can't introduce → at goal ~a" g)))
-              (match (get-hole-goal h)
+              (define the-goal (get-hole-goal h))
+              (match the-goal
                 [(⊢ H G)
                  (syntax-case G (→)
                    [(→ a b)
                     (let ((dom #'a)
                           (cod #'b))
                       (seal-stlc
+                       the-goal
                        #`(lambda (#,x)
                            #,(make-assumption-hole h
                                                    (lambda (h g)
@@ -185,7 +187,7 @@
     (-> exact-nonnegative-integer? tactic/c)
     (TACTIC
      (lambda (hole make-hole fk)
-       (match-define (⊢ H G) (get-hole-goal hole))
+       (match-define (and the-goal (⊢ H G)) (get-hole-goal hole))
        (if (>= n (length H))
            (fk "Not enough hypotheses")
            (match-let ([(list x t safe?) (list-ref H n)])
@@ -198,10 +200,11 @@
                                             '#,(syntax-column x)
                                             '#,(syntax-position x)
                                             '#,(syntax-span x)))
-                    (seal-stlc #`(contract #,(type->contract t)
+                    (seal-stlc the-goal
+                               #`(contract #,(type->contract t)
                                            #,x
                                            #,(string-append "assumption " (symbol->string (syntax-e x)) " in proof")
-                                      'neg-blame
+                                           'neg-blame
                                       '#,x
                                       #,where))]))))))
 
@@ -209,11 +212,11 @@
     (-> exact-nonnegative-integer? tactic/c)
     (TACTIC
      (lambda (hole make-subgoal fk)
-       (match-define (⊢ H G) (get-hole-goal hole))
+       (match-define (and the-goal (⊢ H G)) (get-hole-goal hole))
        (if (not (type=? G #'Int))
            (fk (format "Type not Int: ~a" G))
-           (seal-stlc #`(+ #,@(for/list ([i (in-range n)])
-                                (make-subgoal i hole (⊢ H #'Int)))))))))
+           (seal-stlc the-goal #`(+ #,@(for/list ([i (in-range n)])
+                                         (make-subgoal i hole (⊢ H #'Int)))))))))
 
   (define/contract strlen
     tactic/c
@@ -227,7 +230,7 @@
   (define-stamp stlc)
 
   (define ((emit stx) h make-subgoal)
-    (seal-stlc stx))
+    (seal-stlc (get-hole-goal h) stx))
   
   (define-splicing-syntax-class hyps-option
     (pattern (~seq #:hyps [(x:id t:expr) ...])

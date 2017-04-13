@@ -79,7 +79,7 @@
   ;; Emit a particular piece of syntax.
   (define (emit out-stx)
     #;(displayln `(emitting ,out-stx))
-    (TACTIC (lambda (hole k fk) (seal-lcfish-test out-stx))))
+    (TACTIC (lambda (hole k fk) (seal-lcfish-test (get-hole-goal hole) out-stx))))
 
   (define (fail message . args)
     (FAIL (apply format message args))))
@@ -176,7 +176,7 @@
       (TACTIC (lambda (hole-stx make-subgoal fk)
                 (define h1 (make-subgoal 0 hole-stx #f))
                 (define h2 (make-subgoal 1 hole-stx #f))
-                (seal-lcfish-test #`(+ #,h1 #,h2))))))
+                (seal-lcfish-test (get-hole-goal hole-stx) #`(+ #,h1 #,h2))))))
 
   
 
