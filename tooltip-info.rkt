@@ -1,12 +1,16 @@
-#lang racket
+#lang racket/base
 
 (provide (for-syntax tooltip-info))
-(require "lift-tooltips.rkt" (for-syntax "engine/proof-state.rkt"))
+(require "lift-tooltips.rkt" (for-syntax "engine/proof-state.rkt" racket/match racket/base))
 
 (define-for-syntax (tooltip-info show)
-  (lambda (loc goal)
+  (lambda (loc goal mode)
     (when loc
       (save-tooltip (lambda ()
-                      (string-append (format "~a\n" (syntax->datum loc))
+                      (string-append (format "~a: ~a\n"
+                                             (match mode
+                                               ['in "In"]
+                                               ['out "Out"])
+                                             (syntax->datum loc))
                                      (show goal)))
                     loc))))

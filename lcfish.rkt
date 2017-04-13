@@ -68,10 +68,13 @@
       [(_ t (ts ...) (ts2 ...) ...) #'(then-l (THENL t (list ts ...)) (ts2 ...) ...)]))
 
   (define-syntax (then stx)
-    (syntax-parse stx
-      [(_ tac) #'tac]
-      [(_ tac1 tac2) #'(THEN tac1 tac2)]
-      [(_ tac1 tac2 tac ...) #'(THEN tac1 (then tac2 tac ...))]))
+    (quasisyntax/loc stx
+      (LOC
+       #'#,stx
+       #,(syntax-parse stx
+           [(_ tac) #'tac]
+           [(_ tac1 tac2) #'(THEN tac1 tac2)]
+           [(_ tac1 tac2 tac ...) #'(THEN tac1 (then tac2 tac ...))]))))
 
   ;; Emit a particular piece of syntax.
   (define (emit out-stx)
@@ -157,7 +160,7 @@
     (define tooltip-counter (box 0))
     (tactic-info-hook
      (tooltip-info
-      (lambda (_)
+      (lambda (goal)
         (set-box! tooltip-counter (+ 1 (unbox tooltip-counter)))
         (format "this is a tooltip! (~a)" (unbox tooltip-counter))))))
   

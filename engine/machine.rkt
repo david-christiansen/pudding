@@ -6,6 +6,7 @@
          (struct-out ORELSE)
          (struct-out FAIL)
          (struct-out TACTIC)
+         (struct-out LOC)
          LCF?
 
          (struct-out LCF-state)
@@ -13,6 +14,7 @@
          (struct-out THEN-frame)
          (struct-out THENL-frame)
          (struct-out ORELSE-frame)
+         (struct-out LOC-frame)
          LCF-frame?)
 
 ;; Abstract syntax of core tactic language. Nodes in the AST may,
@@ -26,12 +28,13 @@
 (struct FAIL LCF (message) #:transparent)
 ;; Here, tactic is a (-> hole-stx (-> nat goal hole-stx) sealed-hole-stx)
 (struct TACTIC LCF (tactic) #:transparent)
+(struct LOC LCF (where tac) #:transparent)
 
 ;; The state of the machine has two parts: an explicit machine state,
 ;; and an implicit context given by macro expansion. The continuation
 ;; is given as a list of frames.
 ;; Here's the explicit part of the state.
-(struct LCF-state (control continuation goal) #:transparent)
+(struct LCF-state (control continuation goal loc) #:transparent)
 
 ;; Continuation frames
 (struct LCF-frame () #:transparent)
@@ -41,3 +44,4 @@
 ;; failure handling must capture a Racket continuation. This is stored
 ;; in cont.
 (struct ORELSE-frame LCF-frame (cont) #:transparent)
+(struct LOC-frame LCF-frame (where) #:transparent)

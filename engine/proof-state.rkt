@@ -18,7 +18,7 @@
   (make-parameter
    (lambda (hole-stx)
      (define st (get-proof-state hole-stx))
-     (define loc (proof-state-loc st))
+     (define loc (LCF-state-loc (proof-state-machine-state st)))
      (raise-syntax-error 'no-more-tactics "No more tactics" loc))
    (lambda (f)
      (if (procedure? f)
@@ -34,7 +34,6 @@
   
 (struct proof-state
   (machine-state
-   loc
    unseal)
   #:transparent)
 
@@ -51,26 +50,26 @@
 
 (define (get-machine-state stx)
   (match (get-proof-state stx)
-    [(proof-state m _ _) m]))
+    [(proof-state m _) m]))
 
 (define (set-machine-state stx m)
   (match (get-proof-state stx)
-    [(proof-state _ loc unseal)
-     (set-proof-state stx (proof-state m loc unseal))]))
+    [(proof-state _ unseal)
+     (set-proof-state stx (proof-state m unseal))]))
 
 (define ((update-machine-state f) stx)
   (set-machine-state (f (get-machine-state stx))))
 
-(define (basic-machine-state goal tactic)
+(define (basic-machine-state goal tactic loc)
   (LCF-state (THEN tactic
                    (TACTIC (lambda (h next)
                              ((no-more-tactics-hook) h))))
              '()
-             goal))
+             goal
+             loc))
 
 (define (basic-proof-state tactic unseal)
-  (proof-state (basic-machine-state #f tactic)
-               #f
+  (proof-state (basic-machine-state #f tactic #f)
                unseal))
 
 (define (set-basic-state hole-stx tactic unseal)
@@ -78,10 +77,10 @@
 
 (define (unseal/hole h r)
   (match (get-proof-state h)
-    [(proof-state _ _ u) (u r)]))
+    [(proof-state _ u) (u r)]))
 
 (define (get-hole-loc hole-stx)
-  (proof-state-loc (get-proof-state hole-stx)))
+  (LCF-state-loc (proof-state-machine-state (get-proof-state hole-stx))))
 
 (define (refine hole-stx new-stx)
   (refinement new-stx
