@@ -62,7 +62,7 @@
 
 (define (basic-machine-state goal tactic loc)
   (LCF-state (THEN tactic
-                   (TACTIC (lambda (h next)
+                   (TACTIC (lambda (h next fk)
                              ((no-more-tactics-hook) h))))
              '()
              goal

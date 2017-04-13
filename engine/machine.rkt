@@ -7,6 +7,7 @@
          (struct-out FAIL)
          (struct-out TACTIC)
          (struct-out LOC)
+         (struct-out REFLECT)
          LCF?
 
          (struct-out LCF-state)
@@ -29,6 +30,7 @@
 ;; Here, tactic is a (-> hole-stx (-> nat goal hole-stx) (-> string? ⊥) sealed-hole-stx)
 (struct TACTIC LCF (tactic) #:transparent)
 (struct LOC LCF (where tac) #:transparent)
+(struct REFLECT LCF (todo) #:transparent)
 
 ;; The state of the machine has two parts: an explicit machine state,
 ;; and an implicit context given by macro expansion. The continuation

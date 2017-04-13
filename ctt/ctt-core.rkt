@@ -210,7 +210,7 @@
 
   (define (subst1 from to expr)
     (subst (simple-subst from to) expr)))
-  
+
 
 (define-for-syntax (subst-in-hyp σ h)
   (match-define (hyp name type visible?) h)
@@ -361,26 +361,26 @@
       [other #'other]))
 
 
-;                                                                                  
-;                                                                                  
-;                                                                                  
-;   ;;;;;;;;  ;;                                                                   
-;   ;;;;;;;;  ;;                                                                   
-;      ;;     ;;                                                                   
-;      ;;     ;; ;;;      ;;;       ;;;      ;; ;;;     ;;;     ; ;; ;;     ;;;;   
-;      ;;     ;;;;;;;    ;;;;;     ;;;;;     ;;;;;;;   ;;;;;    ;;;;;;;;  ;;;;;;;  
-;      ;;     ;;;  ;;   ;;   ;;   ;;; ;;;    ;;;  ;   ;;   ;;   ;; ;; ;;  ;;   ;   
-;      ;;     ;;   ;;   ;;   ;;   ;;   ;;    ;;       ;;   ;;   ;; ;; ;;  ;;       
-;      ;;     ;;   ;;   ;;;;;;;   ;;   ;;    ;;       ;;;;;;;   ;; ;; ;;  ;;;;     
-;      ;;     ;;   ;;   ;;;;;;;   ;;   ;;    ;;       ;;;;;;;   ;; ;; ;;   ;;;;;   
-;      ;;     ;;   ;;   ;;        ;;   ;;    ;;       ;;        ;; ;; ;;     ;;;;  
-;      ;;     ;;   ;;   ;;        ;;   ;;    ;;       ;;        ;; ;; ;;       ;;  
-;      ;;     ;;   ;;   ;;;  ;    ;;; ;;;    ;;       ;;;  ;    ;; ;; ;;  ;;   ;;  
-;      ;;     ;;   ;;    ;;;;;;    ;;;;;     ;;        ;;;;;;   ;; ;; ;;  ;;;;;;;  
-;      ;;     ;;   ;;     ;;;;      ;;;      ;;         ;;;;    ;; ;; ;;   ;;;;;   
-;                                                                                  
-;                                                                                  
-;                                                                                  
+;
+;
+;
+;   ;;;;;;;;  ;;
+;   ;;;;;;;;  ;;
+;      ;;     ;;
+;      ;;     ;; ;;;      ;;;       ;;;      ;; ;;;     ;;;     ; ;; ;;     ;;;;
+;      ;;     ;;;;;;;    ;;;;;     ;;;;;     ;;;;;;;   ;;;;;    ;;;;;;;;  ;;;;;;;
+;      ;;     ;;;  ;;   ;;   ;;   ;;; ;;;    ;;;  ;   ;;   ;;   ;; ;; ;;  ;;   ;
+;      ;;     ;;   ;;   ;;   ;;   ;;   ;;    ;;       ;;   ;;   ;; ;; ;;  ;;
+;      ;;     ;;   ;;   ;;;;;;;   ;;   ;;    ;;       ;;;;;;;   ;; ;; ;;  ;;;;
+;      ;;     ;;   ;;   ;;;;;;;   ;;   ;;    ;;       ;;;;;;;   ;; ;; ;;   ;;;;;
+;      ;;     ;;   ;;   ;;        ;;   ;;    ;;       ;;        ;; ;; ;;     ;;;;
+;      ;;     ;;   ;;   ;;        ;;   ;;    ;;       ;;        ;; ;; ;;       ;;
+;      ;;     ;;   ;;   ;;;  ;    ;;; ;;;    ;;       ;;;  ;    ;; ;; ;;  ;;   ;;
+;      ;;     ;;   ;;    ;;;;;;    ;;;;;     ;;        ;;;;;;   ;; ;; ;;  ;;;;;;;
+;      ;;     ;;   ;;     ;;;;      ;;;      ;;         ;;;;    ;; ;; ;;   ;;;;;
+;
+;
+;
 
 
 (define-syntax (run-script stx)
@@ -391,7 +391,6 @@
          (define-syntax (go s)
            (init-hole
             unseal-ctt
-            (make-skip seal-ctt)
             (then tactic ...)
             (⊢ null (local-expand #'g 'expression null))
             #'#,#'(tactic ...)))
@@ -413,10 +412,9 @@
                    [seal #'seal-ctt])
        (quasisyntax/loc stx
          (begin
-           (define-for-syntax expanded-goal (local-expand #'goal 'expression null))    
+           (define-for-syntax expanded-goal (local-expand #'goal 'expression null))
            (define-syntax (get-extract s)
              (init-hole unseal
-                        (make-skip seal)
                         (then tactic1 tactic ...)
                         (⊢ null expanded-goal)
                         #'#,#'(tactic1 tactic ...)))
@@ -481,7 +479,7 @@
 ;
 
 (begin-for-syntax
-  
+
 
   (define ((guard-goal pred tac) hole make-hole)
     (match (get-hole-goal hole)
@@ -531,7 +529,7 @@
     (rule (⊢ (at-hyp i Δ _ Γ) G)
           #:seal seal-ctt
           (subgoal (⊢ (append Δ Γ) G))))
-  
+
   (define (assumption n)
     (rule (⊢ H G) #:seal seal-ctt
           (define assumptions (length H))
@@ -603,12 +601,12 @@
                                               G))
                                          name))
                new-H))))
-  
+
   (define ADMIT
     (rule (⊢ H G)
           #:seal seal-ctt
           #'(error "Admitted")))
-  
+
   ;; TODO: test me
   (define (explicit-intro term)
     (rule (⊢ H G)
@@ -772,7 +770,7 @@
              #:with (~and todo eq2:Eq) #'eq.type
              (subgoal (⊢ H #'eq2))]
             [_ (not-applicable)])))
-  
+
   (define (assumption-refl n)
     (rule (⊢ H G)
           #:seal seal-ctt
@@ -836,7 +834,7 @@
             [eq:Eq
              (subgoal (⊢ H (local-expand (syntax/loc G (≡ eq.type eq.right eq.left)) 'expression null)))]
             [_ (not-applicable)])))
-  
+
   (define (transitivity middle)
     (rule (⊢ H G)
           #:seal seal-ctt
@@ -1058,12 +1056,11 @@
        (and (equal? H1 H2) (α-equiv?/hyps H1 G1 G2))]))
 
   (define (fail-if-skip t)
-    (match-goal*
-     [before (then* t
-                    (match-goal*
-                     [after #:when (equal-goal? before after) (fail "goal did not change")]
-                     [_ #:when #t skip]))]))
-  )
+    (match-goal
+     [before (then t
+                   (match-goal
+                    [after #:when (equal-goal? before after) (fail "goal did not change")]
+                    [_ skip]))])))
 
 (module+ test
   (define U1→U1
@@ -1193,33 +1190,33 @@
 
 
 
-;                                                    
-;                                                    
-;                ;;                                  
-;    ;;          ;;                 ;;               
-;    ;;                             ;;               
-;    ;;                             ;;               
-;    ;;        ;;;;       ;;;;    ;;;;;;;     ;;;;   
-;    ;;        ;;;;     ;;;;;;;   ;;;;;;;   ;;;;;;;  
-;    ;;          ;;     ;;   ;      ;;      ;;   ;   
-;    ;;          ;;     ;;          ;;      ;;       
-;    ;;          ;;     ;;;;        ;;      ;;;;     
-;    ;;          ;;      ;;;;;      ;;       ;;;;;   
-;    ;;          ;;        ;;;;     ;;         ;;;;  
-;    ;;          ;;          ;;     ;;           ;;  
-;    ;;          ;;     ;;   ;;     ;;  ;   ;;   ;;  
-;    ;;;;;;;  ;;;;;;;;  ;;;;;;;     ;;;;;;  ;;;;;;;  
-;    ;;;;;;;  ;;;;;;;;   ;;;;;       ;;;;    ;;;;;   
-;                                                    
-;                                                    
-;                                                    
+;
+;
+;                ;;
+;    ;;          ;;                 ;;
+;    ;;                             ;;
+;    ;;                             ;;
+;    ;;        ;;;;       ;;;;    ;;;;;;;     ;;;;
+;    ;;        ;;;;     ;;;;;;;   ;;;;;;;   ;;;;;;;
+;    ;;          ;;     ;;   ;      ;;      ;;   ;
+;    ;;          ;;     ;;          ;;      ;;
+;    ;;          ;;     ;;;;        ;;      ;;;;
+;    ;;          ;;      ;;;;;      ;;       ;;;;;
+;    ;;          ;;        ;;;;     ;;         ;;;;
+;    ;;          ;;          ;;     ;;           ;;
+;    ;;          ;;     ;;   ;;     ;;  ;   ;;   ;;
+;    ;;;;;;;  ;;;;;;;;  ;;;;;;;     ;;;;;;  ;;;;;;;
+;    ;;;;;;;  ;;;;;;;;   ;;;;;       ;;;;    ;;;;;
+;
+;
+;
 
 (begin-for-syntax
   (define listof-ctor
     (syntax-parse (local-expand #'(Listof (U 0)) 'expression null)
       #:literal-sets (kernel-literals)
       [(#%plain-app l _) #'l]))
-  
+
   (define list-formation
     (rule (⊢ H G)
           #:seal seal-ctt
@@ -1306,23 +1303,23 @@
                       y ys ih)))
              #`(ind-Listof #,xs #,base #,step)]))))
 
-;                                                              
-;                                                              
-;                                                              
-;     ;;;;;              ;;                             ;;     
-;    ;;;;;;;             ;;                             ;;     
-;    ;;   ;              ;;                             ;;     
-;    ;;       ;;   ;;    ;; ;;;     ;;;;      ;;;     ;;;;;;;  
-;    ;;;      ;;   ;;    ;;;;;;   ;;;;;;;    ;;;;;    ;;;;;;;  
-;     ;;;     ;;   ;;    ;;;  ;;  ;;   ;    ;;   ;;     ;;     
-;      ;;;    ;;   ;;    ;;   ;;  ;;        ;;   ;;     ;;     
-;       ;;;   ;;   ;;    ;;   ;;  ;;;;      ;;;;;;;     ;;     
-;        ;;;  ;;   ;;    ;;   ;;   ;;;;;    ;;;;;;;     ;;     
-;         ;;  ;;   ;;    ;;   ;;     ;;;;   ;;          ;;     
-;    ;    ;;  ;;   ;;    ;;   ;;       ;;   ;;          ;;     
-;   ;;;  ;;;  ;;  ;;;    ;;;  ;;  ;;   ;;   ;;;  ;      ;;  ;  
-;    ;;;;;;   ;;;;;;;    ;;;;;;   ;;;;;;;    ;;;;;;     ;;;;;; 
-;     ;;;;     ;;; ;;    ;; ;;;    ;;;;;      ;;;;       ;;;;  
-;                                                              
-;                                                              
-;                                                              
+;
+;
+;
+;     ;;;;;              ;;                             ;;
+;    ;;;;;;;             ;;                             ;;
+;    ;;   ;              ;;                             ;;
+;    ;;       ;;   ;;    ;; ;;;     ;;;;      ;;;     ;;;;;;;
+;    ;;;      ;;   ;;    ;;;;;;   ;;;;;;;    ;;;;;    ;;;;;;;
+;     ;;;     ;;   ;;    ;;;  ;;  ;;   ;    ;;   ;;     ;;
+;      ;;;    ;;   ;;    ;;   ;;  ;;        ;;   ;;     ;;
+;       ;;;   ;;   ;;    ;;   ;;  ;;;;      ;;;;;;;     ;;
+;        ;;;  ;;   ;;    ;;   ;;   ;;;;;    ;;;;;;;     ;;
+;         ;;  ;;   ;;    ;;   ;;     ;;;;   ;;          ;;
+;    ;    ;;  ;;   ;;    ;;   ;;       ;;   ;;          ;;
+;   ;;;  ;;;  ;;  ;;;    ;;;  ;;  ;;   ;;   ;;;  ;      ;;  ;
+;    ;;;;;;   ;;;;;;;    ;;;;;;   ;;;;;;;    ;;;;;;     ;;;;;;
+;     ;;;;     ;;; ;;    ;; ;;;    ;;;;;      ;;;;       ;;;;
+;
+;
+;

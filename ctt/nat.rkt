@@ -425,10 +425,11 @@
                 (assumption 0)))
 
   (define-for-syntax (repeat t)
-    (try* (then* t
-                 (delay (repeat t)))
-          skip))
-
+    (lambda ()
+      (try (then t
+                 (repeat t))
+           skip)))
+  
   (define-syntax (abstract stx)
     (syntax-parse stx
       ;#:datum-literals (quote) ;; WARNING: hack alert
@@ -455,7 +456,7 @@
          [(_ _ _ other) #'other]))))
 
   (define-for-syntax (auto)
-    (match-goal*
+    (match-goal
      ((⊢ H G)
       (syntax-parse G
         #:literal-sets (kernel-literals)
@@ -497,39 +498,39 @@
          ind-Nat-0-reduce]
         [eq:Eq
          #:with (#%plain-app ind-Nat (quote 0) base step) #'eq.right
-         (then* symmetry ind-Nat-0-reduce symmetry)]
+         (then symmetry ind-Nat-0-reduce symmetry)]
         [eq:Eq
          #:with (#%plain-app ind-Nat (#%plain-app add1 k) base step) #'eq.left
-         (then-l* (ind-Nat-add1-reduce #'k)
-                  ((then* add1-equality (auto))))]
+         (then-l (ind-Nat-add1-reduce #'k)
+                  ((then add1-equality (auto))))]
         [eq:Eq
          #:with (#%plain-app ind-Nat (#%plain-app add1 k) base step) #'eq.right
-         (then* symmetry
-                (then-l* (ind-Nat-add1-reduce #'k)
-                         ((then* add1-equality (auto))))
+         (then symmetry
+                (then-l (ind-Nat-add1-reduce #'k)
+                         ((then add1-equality (auto))))
                 symmetry)]
         [foo
          ;; No special rules match, so try all the hypotheses then fail
          (let loop ([i 0])
            (if (< i (length H))
-               (try* (assumption i)
-                     (loop (add1 i)))
+               (try (assumption i)
+                    (loop (add1 i)))
                (fail "Can't auto: ~a" (stx->string G))))]))))
 
-  (define-for-syntax (flip t) (then* symmetry t symmetry))
+  (define-for-syntax (flip t) (then symmetry t symmetry))
 
   (define-for-syntax (auto/arith)
-    (try* (fail-if-skip nat-simplify)
-          (fail-if-skip (flip nat-simplify))
-          nat-equal-arith
-          (flip nat-equal-arith)
-          (ind-Nat-equality (ex #'(lambda (_) (Nat))))
-          (flip (ind-Nat-equality (ex #'(lambda (_) (Nat)))))
-          (auto)
-          (flip (auto))))
+    (try (fail-if-skip nat-simplify)
+         (fail-if-skip (flip nat-simplify))
+         nat-equal-arith
+         (flip nat-equal-arith)
+         (ind-Nat-equality (ex #'(lambda (_) (Nat))))
+         (flip (ind-Nat-equality (ex #'(lambda (_) (Nat)))))
+         (auto)
+         (flip (auto))))
   
   (define-for-syntax (call-with-hypothesis-name num tac)
-    (match-goal*
+    (match-goal
      ((⊢ H G)
       #:when (>= (length H) num)
       (tac (hypothesis-id (list-ref H num))))))
@@ -537,7 +538,7 @@
   (define-for-syntax (call-with-hypothesis-names . args)
     (match args
       [(list num ... tac)
-       (match-goal*
+       (match-goal
         ((⊢ H G)
          (apply tac
                 (for/list ([n num])
@@ -564,7 +565,7 @@
   ;;  2. The original goal
   ;;  3. The redex inhabits the type
   (define-for-syntax (β type)
-    (match-goal*
+    (match-goal
      ((⊢ H G)
       (with-handlers ([exn:fail?
                        (lambda (e)
@@ -574,29 +575,29 @@
           [eq:Eq
            (define hole #'hole)
            (define-values (ctx redex smaller) (find-redex #'eq.left hole))
-           (then-l* (cut 0 (ex #`(≡ #,type #,redex #,smaller)))
+           (then-l (cut 0 (ex #`(≡ #,type #,redex #,smaller)))
                     (apply-reduce
-                     (then*
-                      (then* (replace type redex smaller (ex #`(lambda (#,hole) (≡ eq.type #,ctx eq.right))))
-                             (try* (assumption 0) skip))
+                     (then
+                      (then (replace type redex smaller (ex #`(lambda (#,hole) (≡ eq.type #,ctx eq.right))))
+                             (try (assumption 0) skip))
                       (thin 0))))]
           [_ (fail "Can't β")])))))
 
   (define-for-syntax β*
-    (let ([x (try* (β (E (Nat)))
+    (let ([x (try (β (E (Nat)))
                    (β (E (=> (Nat) (Nat))))
                    (β (E (=> (Nat) (Nat) (Nat)))))])
-      (try* x (flip x))))
+      (try x (flip x))))
   
   (define-for-syntax (unfold-all id . ids)
-    (then* (unfold id)
-           (match-goal*
+    (then (unfold id)
+           (match-goal
             ((⊢ (cons (hyp _ t _) H) G)
              (syntax-parse t
                [eq:Eq
                 (let ([context (with-syntax ([G G] [id id])
                                  (ex #'(lambda (x) (abstract id x G))))])
-                  (then-l* (replace #'eq.type #'eq.left #'eq.right context)
+                  (then-l (replace #'eq.type #'eq.left #'eq.right context)
                            ((assumption 0)
                             (repeat (auto)))))])))
            (thin 0)
@@ -605,9 +606,9 @@
                (apply unfold-all ids))))
 
   (define-for-syntax reduce-both
-    (then* apply-reduce symmetry apply-reduce symmetry))
+    (then apply-reduce symmetry apply-reduce symmetry))
   (define-for-syntax reduce-either
-    (try* apply-reduce (flip apply-reduce)))
+    (try apply-reduce (flip apply-reduce)))
   (begin-for-syntax
     (define-syntax-rule (with-hyps ([id n] ...) . b)
       (call-with-hypothesis-names

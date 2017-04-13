@@ -46,6 +46,12 @@
      (get-handler frames)]))
 
 
+(define-for-syntax (more-specific? loc1 loc2)
+  (and (equal? (source-location-source loc1) (source-location-source loc2))
+       (>= (source-location-position loc1) (source-location-position loc2))
+       (<= (+ (source-location-position loc1) (source-location-span loc1))
+           (+ (source-location-position loc2) (source-location-span loc2)))))
+
 (define-syntax (hole stx)
   (match-define (LCF-state control cont goal loc)
     (get-machine-state stx))
@@ -127,7 +133,9 @@
          (internal-step (LCF-state (th) cont goal loc))]
         [(LCF-state (LOC where next) cont goal loc)
          ((tactic-info-hook) where goal 'in)
-         (internal-step (LCF-state next (cons (LOC-frame loc) cont) goal where))])))
+         (internal-step (LCF-state next (cons (LOC-frame loc) cont) goal where))]
+        [(LCF-state (REFLECT todo) cont goal loc)
+         (internal-step (LCF-state (todo st) cont goal loc))])))
   result)
 
 

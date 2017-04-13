@@ -6,7 +6,6 @@
          racket/stxparam
          (for-syntax "engine/proof-state.rkt")
          (for-syntax "seal.rkt")
-         
          (for-syntax "engine/machine.rkt")
          "engine/hole.rkt")
 
@@ -14,7 +13,7 @@
  
  (for-syntax skip fail try #;try* then #;then* then-l #;then-l* tactic/c #;subgoal-with-tactic basic-proof-state
              no-more-tactics-hook  #;debug
-             #;with-goal #;match-goal #;match-goal*)
+             #;with-goal #;match-goal match-goal)
  tactic-debug? tactic-debug-hook
  run-script)
 
@@ -98,12 +97,9 @@
          #'(LOC #'the-stx (ORELSE (LOC #'t1 t1) (try t2 t3 ...)))]))))
 
 (begin-for-syntax
-  #;
-  (define/contract ((call-with-goal tac) hole make-subgoal)
-    (-> (-> any/c (or/c tactic/c (promise/c tactic/c)))
-        tactic/c)
-    ((tac (get-hole-goal hole)) hole make-subgoal))
-  #;
+  (define (call-with-goal tac)
+    (REFLECT (lambda (st) (tac (LCF-state-goal st)))))
+
   (define-syntax (with-goal stx)
     (syntax-case stx ()
       [(_ g e ...)
@@ -111,39 +107,28 @@
          (call-with-goal
           (lambda (g)
             e ...)))]))
-  #;
-  (define-syntax (match-goal* stx)
-    (syntax-case stx ()
-      [(_ (pat #:when w body ...) ...)
-       (quasisyntax/loc stx
-         (with-goal g
-           (match g
-             (pat #:when w (then* body ...))
-             ...
-             (_ (fail "No pattern matched goal")))))]
-      [(_ (pat body ...) ...)
-       (syntax/loc stx
-         (match-goal* (pat #:when #t body ...) ...))]))
-  #;
+  
+  (begin-for-syntax
+    (define-splicing-syntax-class perhaps-when
+      #:attributes (condition)
+      #:description "optional when"
+      (pattern (~seq #:when w)
+               #:with condition #'w)
+      (pattern (~seq)
+               #:with condition #'#t)))
+
+
   (define-syntax (match-goal stx)
-    (syntax-case stx ()
-      [(_ (pat #:when w body ...) ...)
+    (syntax-parse stx
+      [(_ (pat w:perhaps-when body ... last-body) ...)
        (quasisyntax/loc stx
          (with-goal g
            (match g
-             (pat #:when w (then body ...))
+             (pat #:when w.condition (then body ... last-body))
              ...
-             (_ (fail "No pattern matched goal")))))]
-      [(_ (pat body ...) ...)
-       (syntax/loc stx
-         (match-goal (pat #:when #t body ...) ...))])))
+             (_ (fail "No pattern matched goal")))))])))
 
 (begin-for-syntax
-  #;
-  (define ((debug (message "")) hole make-hole)
-    (displayln `(,message ,(get-hole-loc hole) ,(get-hole-tactic hole) ,(get-hole-goal hole)))
-    (skip hole make-hole))
-
   (define-stamp lcfish-test))
 
 (define-syntax (run-script stx)
@@ -168,7 +153,7 @@
       (lambda (goal)
         (set-box! tooltip-counter (+ 1 (unbox tooltip-counter)))
         (format "this is a tooltip! (~a)" (unbox tooltip-counter))))))
-  
+
   (define-for-syntax (repeat t)
     (lambda ()
       (then t
