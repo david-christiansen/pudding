@@ -63,34 +63,39 @@
     (ID))
 
   (define-syntax (then-l stx)
-    (syntax-parse stx
-      [(_ t (ts ...)) #'(THENL t (list ts ...))]
-      [(_ t (ts ...) (ts2 ...) ...) #'(then-l (THENL t (list ts ...)) (ts2 ...) ...)]))
+    (with-syntax ([the-stx stx])
+      (syntax-parse stx
+        [(thl t (ts ...)) #'(LOC #'the-stx (THENL (LOC #'t t) (list (LOC #'ts ts) ...)))]
+        [(thl t (ts ...) (ts2 ...) ...) #'(then-l (THENL (LOC #'t t) (list (LOC #'ts ts) ...)) (ts2 ...) ...)])))
 
   (define-syntax (then stx)
     (quasisyntax/loc stx
       (LOC
        #'#,stx
        #,(syntax-parse stx
-           [(_ tac) #'tac]
-           [(_ tac1 tac2) #'(THEN tac1 tac2)]
-           [(_ tac1 tac2 tac ...) #'(THEN tac1 (then tac2 tac ...))]))))
+           [(_ tac) #`(LOC #'tac tac)]
+           [(_ tac1 tac2) #`(THEN (LOC #'tac1 tac1) (LOC #'tac2 tac2))]
+           [(_ tac1 tac2 tac ...) #'(THEN (LOC #'tac1 tac1) (then tac2 tac ...))]))))
 
   ;; Emit a particular piece of syntax.
   (define (emit out-stx)
     #;(displayln `(emitting ,out-stx))
     (TACTIC (lambda (hole k fk) (seal-lcfish-test (get-hole-goal hole) out-stx))))
 
-  (define (fail message . args)
-    (FAIL (apply format message args))))
+  (define-syntax (fail stx)
+    (with-syntax ([the-stx stx])
+      (syntax-parse stx
+        [(f message arg ...)
+         #'(LOC #'the-stx (FAIL (format message arg ...)))]))))
 
 (begin-for-syntax
-  (define-syntax try
-    (syntax-rules ()
-      [(_ t) t]
-      [(_ t1 t2) (ORELSE t1 t2)]
-      [(_ t1 t2 t3 ...)
-       (ORELSE t1 (try t2 t3 ...))])))
+  (define-syntax (try stx)
+    (with-syntax ([the-stx stx])
+      (syntax-parse stx
+        [(_ t) #'(LOC #'t t)]
+        [(_ t1 t2) #'(LOC #'the-stx (ORELSE (LOC #'t1 t1) (LOC #'t2 t2)))]
+        [(_ t1 t2 t3 ...)
+         #'(LOC #'the-stx (ORELSE (LOC #'t1 t1) (try t2 t3 ...)))]))))
 
 (begin-for-syntax
   #;
