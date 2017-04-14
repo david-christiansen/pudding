@@ -132,8 +132,10 @@
         [(LCF-state (? procedure? th) cont goal loc)
          (internal-step (LCF-state (th) cont goal loc))]
         [(LCF-state (LOC where next) cont goal loc)
-         ((tactic-info-hook) where goal 'in)
-         (internal-step (LCF-state next (cons (LOC-frame loc) cont) goal where))]
+         (if (more-specific? where loc)
+          (begin ((tactic-info-hook) where goal 'in)
+                 (internal-step (LCF-state next (cons (LOC-frame loc) cont) goal where)))
+          (internal-step (LCF-state next cont goal where)))]
         [(LCF-state (REFLECT todo) cont goal loc)
          (internal-step (LCF-state (todo st) cont goal loc))])))
   result)
