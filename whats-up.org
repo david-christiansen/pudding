@@ -1,0 +1,92 @@
+#+STARTUP: showall
+
+* The Problem
+
+In the abstract machine model of Pudding's tactic language, we have
+the standard LCF  operators ID, THEN, ORELSE, THENL, and FAIL,
+together with refinements.
+
+There are two models: the higher-order model which is a pseudo-CPS of
+the original LCF structures, and the abstract machine model.
+
+In the abstract machine model, the state of the proof system is
+represented as a tuple, and there are two forms of transition:
+
+  1. /Internal/ transitions, from one tuple to another
+  2. /External/ transitions, where a syntax object containing zero or
+     more holes is produced. Each hole has a proof state.
+
+External transitions are produced by refinement rules, which are
+intended to be a function from a goal to the new syntax
+object. However, refinement rules need to be able to fail, and they
+need a source of proof states for the holes that they introduce. So
+refinement rules are in fact procedures that take three arguments: a
+goal, a source of new holes for subgoals, and a failure continuation.
+
+
+The problem to be solved is how to appropriately construct the source
+of new holes.
+
+First off, things that don't work:
+1. Representing the LCF control structures as procedures, and doing
+   fairly classic CPS (the "shallow embedding")
+  - One way to do it wrong is to use a generator to implement the
+    source of subgoal continuations. The generator relies on a side
+    effect, and so is not rewound when handling a failure.
+    continuation. This leads to very strange, hard-to-diagnose bugs.
+  - Another way to get it wrong is to have the subgoals request
+    numbered continuations. This is because a THEN operation resets
+    the number to 0, so
+      (THENL (THEN t1 t2) (a b c))
+    will run 'a' in all subgoals, rather than only in the first.
+
+2. Representing the control structures explicitly as a datatype, with
+   only the refinement rules getting a higher-order representation
+   (the "deep embedding" or "abstract machine" approach).
+  - Wrong answer #1: requesting continuations by number. See above.
+  - Requesting continuations by number can be made to work if we know
+    how many continuations were requested by the prior holes in the
+    same validation. Then, the number could be adjusted up by the sum
+    of the previous goals' continuation counts.
+
+    Unfortunately, we can't know the previous goals' continuation
+    counts. We are not in control over the order in which the macro
+    expander expands the syntax of the validation that contains holes,
+    so we can't enforce that they are run from left to right. Also, we
+    are completely incapable of local-expanding the subgoals first -
+    they may contain references to variables that are not bound in the
+    current macro expansion scope, but first become bound in the
+    context of the validation syntax.
+    
+    In other words, to know the number of subgoals that are requested
+    by the hole continuations, we must already have generated them.
+    This approach is out, as are related notions like having the
+    subgoal provide a list of goals instead of ask with Nats, or using
+    some kind of stream structure.
+
+* Unexplored Solutions
+** Proofs out of the macro expander
+
+One potential solution is to pull proofs out of the macro
+expander, and have the generation of syntax be a second step following
+the initial proof act. Then, only when a proof has succeeded will
+macro expansion occur. This has some major downsides:
+ 1. Harder to re-use metaprogramming tools when not in the dynamic
+    extent of the macro expander
+ 2. Reasoning about macro expansion will require much more than just a
+    local-expand - instead, we'd need to set up the appropriate
+    context somehow, save it, and then use it for purposes of macro
+    expansion. All this without capturing bits of macro-expander
+    continuation that are forbidden.
+
+** A different language of proofs
+In traditional LCF, subgoals are produced in the list monad. Here,
+they are produced in the macro-expander monad, which is vastly more
+powerful and may be incompatible with THENL.  Perhaps we can find a
+different language to write proofs in that is more suited to encoding
+as a macro.
+
+** Proofs as macros
+Right now, proofs are normal functions. Making them into macros might
+solve some issues. Right now we fight the macro expander - can we
+instead use it more to direct control flow?

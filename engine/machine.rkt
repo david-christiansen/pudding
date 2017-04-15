@@ -5,7 +5,7 @@
          (struct-out THENL)
          (struct-out ORELSE)
          (struct-out FAIL)
-         (struct-out TACTIC)
+         (struct-out REFINE)
          (struct-out LOC)
          (struct-out REFLECT)
          LCF?
@@ -28,7 +28,7 @@
 (struct ORELSE LCF (tactic fallback) #:transparent)
 (struct FAIL LCF (message) #:transparent)
 ;; Here, tactic is a (-> hole-stx (-> nat goal hole-stx) (-> string? ⊥) sealed-hole-stx)
-(struct TACTIC LCF (tactic) #:transparent)
+(struct REFINE LCF (subgoal-count tactic) #:transparent)
 (struct LOC LCF (where tac) #:transparent)
 (struct REFLECT LCF (todo) #:transparent)
 
@@ -36,7 +36,7 @@
 ;; and an implicit context given by macro expansion. The continuation
 ;; is given as a list of frames.
 ;; Here's the explicit part of the state.
-(struct LCF-state (control continuation goal loc) #:transparent)
+(struct LCF-state (offset skips control continuation goal loc) #:transparent)
 
 ;; Continuation frames
 (struct LCF-frame () #:transparent)

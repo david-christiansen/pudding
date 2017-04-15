@@ -10,7 +10,7 @@
          "engine/hole.rkt")
 
 (provide
- 
+
  (for-syntax skip fail try #;try* then #;then* then-l #;then-l* tactic/c #;subgoal-with-tactic basic-proof-state
              no-more-tactics-hook  #;debug
              #;with-goal #;match-goal match-goal)
@@ -56,7 +56,7 @@
     (set-goal (set-tactic old-hole tac) new-goal))
 
 
-  
+
   ;; A tactic that does nothing.
   (define skip
     (ID))
@@ -79,7 +79,7 @@
   ;; Emit a particular piece of syntax.
   (define (emit out-stx)
     #;(displayln `(emitting ,out-stx))
-    (TACTIC (lambda (hole k fk) (seal-lcfish-test (get-hole-goal hole) out-stx))))
+    (REFINE 0 (lambda (hole k fk) (seal-lcfish-test (get-hole-goal hole) out-stx))))
 
   (define-syntax (fail stx)
     (with-syntax ([the-stx stx])
@@ -107,7 +107,7 @@
          (call-with-goal
           (lambda (g)
             e ...)))]))
-  
+
   (begin-for-syntax
     (define-splicing-syntax-class perhaps-when
       #:attributes (condition)
@@ -119,7 +119,7 @@
 
 
   (define-syntax (match-goal stx)
-    (syntax-parse stx
+    ( syntax-parse stx
       [(_ (pat w:perhaps-when body ... last-body) ...)
        (quasisyntax/loc stx
          (with-goal g
@@ -163,44 +163,45 @@
   (begin-for-syntax
     (define/contract plus
       tactic/c
-      (TACTIC (lambda (hole-stx make-subgoal fk)
+      (REFINE 2
+              (lambda (hole-stx make-subgoal fk)
                 (define h1 (make-subgoal 0 hole-stx #f))
                 (define h2 (make-subgoal 1 hole-stx #f))
                 (seal-lcfish-test (get-hole-goal hole-stx) #`(+ #,h1 #,h2))))))
 
-  
+
 
   (check-equal?
    (run-script #;(debug "foo")
               (try (fail "fnord")
                    skip)
-              
+
               plus
-              
+
               #;(debug "bar")
               (emit #'22)
               #;(debug "hi"))
    44)
-  
+
   (define seven
     (run-script (emit #'7)))
   (check-equal? seven 7)
-  
+
   (define four
     (run-script plus
                 (emit #'2)))
   (check-equal? four 4)
-  
+
   (define eight
     (run-script plus plus (emit #'2)))
   (check-equal? eight 8)
-  
+
   (define eight-more
     (run-script (then plus (then plus
                                  (then (emit #'2) skip)))))
   (check-equal? eight-more 8)
 
-  
+
   (define three
     (run-script (then-l plus
                         ((emit #'2) (emit #'1)))))
@@ -211,7 +212,7 @@
                         ((emit #'1) plus)
                         ((emit #'2) (emit #'3)))))
   (check-equal? six 6)
-  
+
   (define another-four
     (run-script (try (fail "hmm")
                      plus)
@@ -234,7 +235,7 @@
         (fail "no more plus")
         (begin (set! counter (+ counter 1))
                plus)))
-  
+
 
   (define foo
     (run-script (then plus
@@ -243,7 +244,7 @@
                       (repeat (emit #'1)))))
   (check-equal? foo 32)
 
-  
+
 
   (define bar (run-script (then (repeat at-most-two-plus)
                                 (repeat (emit #'1)))))

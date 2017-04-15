@@ -61,8 +61,11 @@
   (set-machine-state (f (get-machine-state stx))))
 
 (define (basic-machine-state goal tactic loc)
-  (LCF-state (THEN tactic
-                   (TACTIC (lambda (h next fk)
+  (LCF-state 0 ;; offset
+             0 ;; refinements to ditch
+             (THEN tactic
+                   (REFINE 0
+                           (lambda (h next fk)
                              ((no-more-tactics-hook) h))))
              '()
              goal
@@ -77,7 +80,7 @@
 
 (define (unseal/hole h r)
   (match (get-proof-state h)
-    [(proof-state (LCF-state _ _ g _) u) (u g r)]))
+    [(proof-state (LCF-state _ _ _ _ g _) u) (u g r)]))
 
 (define (get-hole-loc hole-stx)
   (LCF-state-loc (proof-state-machine-state (get-proof-state hole-stx))))

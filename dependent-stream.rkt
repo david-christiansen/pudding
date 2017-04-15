@@ -2,7 +2,7 @@
 
 (require racket/promise racket/stream (for-syntax racket/base syntax/parse))
 
-(provide dcons)
+(provide dcons unfold-dstream)
 
 (module+ test
   (require rackunit))
@@ -24,9 +24,14 @@
      #'(let ([fst (delay a)])
          (depcons fst (delay ((lambda (x) d) (force fst)))))]))
 
+(define (unfold-dstream seed step)
+  (dcons seed (x) (unfold-dstream (step x) step)))
 
 (module+ test
   (define (nats-from i)
     (dcons i (x) (nats-from (add1 x))))
   (define nats (nats-from 0))
-  (check-equal? (stream-ref (stream-map add1 nats) 4) 5))
+  (check-equal? (stream-ref (stream-map add1 nats) 4) 5)
+
+  (define more-nats (unfold-dstream 0 add1))
+  (check-equal? (stream-ref more-nats 55) 55))

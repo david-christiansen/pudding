@@ -150,7 +150,8 @@
 
   (define/contract (→-intro [x 'x])
     (->* () (symbol?) tactic/c)
-    (TACTIC (lambda (h make-hole fk)
+    (REFINE 1
+            (lambda (h make-hole fk)
               (define (nope g)
                 (fk (format "Can't introduce → at goal ~a" g)))
               (define the-goal (get-hole-goal h))
@@ -185,7 +186,8 @@
   
   (define/contract (assumption n)
     (-> exact-nonnegative-integer? tactic/c)
-    (TACTIC
+    (REFINE
+     0
      (lambda (hole make-hole fk)
        (match-define (and the-goal (⊢ H G)) (get-hole-goal hole))
        (if (>= n (length H))
@@ -210,7 +212,8 @@
 
   (define/contract (plus n)
     (-> exact-nonnegative-integer? tactic/c)
-    (TACTIC
+    (REFINE
+     n
      (lambda (hole make-subgoal fk)
        (match-define (and the-goal (⊢ H G)) (get-hole-goal hole))
        (if (not (type=? G #'Int))
