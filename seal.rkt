@@ -7,18 +7,39 @@
 
 (struct sealed (local-expander))
 
-(define (local-expand-sealed s)
-  ((sealed-local-expander s) s))
+(define (local-expand-sealed sealed)
+  ((sealed-local-expander sealed) sealed))
 
 (define (make-stamp name)
   (define-values (type ctor pred acc mut)
+    ;;; The struct fields are:
+    ;;; the local-expander (from sealed)
+    ;;; the sealed refinement
+    ;;; the goal for which it is evidence
     (make-struct-type (string->symbol (string-append (symbol->string name) "-theorem"))
-                      struct:sealed 1 0 #f null #f #;(current-inspector) #f '(0) #f name))
-  (define unseal (lambda (x) (acc x 0)))
-  (define (local-expander x)
-    (match-define (refinement stx goal loc) (unseal x))
-    (seal (refinement (local-expand stx 'expression null) goal loc)))
-  (define seal (lambda (x) (ctor local-expander x)))
+                      struct:sealed 2 0 #f null #f #;(current-inspector) #f '(0) #f name))
+  (define unseal-name (string->symbol (format "unseal-~a" name)))
+  (define seal-name (string->symbol (format "seal-~a" name)))
+
+  (define (local-expander val)
+    (match-define (refinement stx goal loc) (acc val 0))
+    (ctor (sealed-local-expander val)
+          (refinement (local-expand stx 'expression null)
+                      goal
+                      loc)
+          (acc val 1)))
+
+  (define unseal
+    (procedure-rename
+     (lambda (goal x)
+       (if (eq? goal (acc x 1))
+           (acc x 0)
+           (raise-argument-error unseal-name (format "A validation for goal ~a" (acc x 1)) 0 goal x)))
+     unseal-name))
+  (define seal
+    (procedure-rename
+     (lambda (goal x) (ctor local-expander x goal))
+     seal-name))
   (values seal unseal))
 
 (define-syntax (define-stamp stx)
@@ -75,4 +96,3 @@
                    0)))
   (check-exn #rx"cannot capture past continuation barrier"
              (thunk (fake-seal 5))))
-

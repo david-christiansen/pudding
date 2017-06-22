@@ -110,7 +110,8 @@
                      (for ([l locs])
                        (save-tooltip (exn-message exn) l)))
                    ((error-display-handler) (exn-message exn) exn)
-                   (seal-ctt (refinement #`(raise #,exn) (⊢ '() #'here) #'here))))
+                   ;(seal-ctt (refinement #`(raise #,exn) (⊢ '() #'here) #'here))
+                   ))
 
   (tactic-info-hook (tooltip-info dump-goal)))
 

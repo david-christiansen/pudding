@@ -614,8 +614,7 @@
        n ...
        (λ (id ...)
          (with-syntax ([id id] ...) (then . b))))))
-  
-  ;; TODO: requires rewriting with an equality and axiomatization of +, ind-Nat's op-sem
+
   (theorem plus-is-plus
            (≡ (=> (Nat) (Nat) (Nat)) plus another-plus)
            (then-l

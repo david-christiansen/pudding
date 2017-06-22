@@ -59,10 +59,11 @@
     ((get-skip-tac hole) hole make-subgoal))
 
   (define/contract ((make-skip seal) hole make-subgoal)
-    (-> (-> any/c sealed?) tactic/c)
+    (-> (-> any/c any/c sealed?) tactic/c)
     (call-with-continuation-barrier
      (thunk
-      (seal (refine hole (make-subgoal hole (get-hole-goal hole)))))))
+      (seal (get-hole-goal hole)
+            (refine hole (make-subgoal hole (get-hole-goal hole)))))))
 
   (define (in-forever val)
     (in-cycle (in-value val)))
@@ -153,7 +154,7 @@
   (define/contract ((emit out-stx) hole make-subgoal)
     (-> syntax? tactic/c)
     #;(displayln `(emitting ,out-stx))
-    (seal-lcfish-test (refine hole out-stx)))
+    (seal-lcfish-test (get-hole-goal hole) (refine hole out-stx)))
 
   (define/contract ((fail message . args) hole make-subgoal)
     (->* (string?) () #:rest (listof any/c) tactic/c)
@@ -279,7 +280,8 @@
   (define-for-syntax (plus hole make-subgoal)
     (define h1 (make-subgoal hole #f))
     (define h2 (make-subgoal hole #f))
-    (seal-lcfish-test (refine hole #`(+ #,h1 #,h2))))
+    (seal-lcfish-test (get-hole-goal hole)
+                      (refine hole #`(+ #,h1 #,h2))))
 
 
 

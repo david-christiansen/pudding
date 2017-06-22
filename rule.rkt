@@ -57,10 +57,10 @@
                              [exn:fail:syntax?
                               (λ (e) ((fail (exn-message e)) hole make-subgoal))])
                (match (get-hole-goal hole)
-                 [goal-pat #:when opts.when
+                 [(and goal-pat the-goal) #:when opts.when
                            (contract (λ (x) (not (void? x)))
                                      (call-with-continuation-barrier
-                                      (lambda () result ... (opts.seal (refine hole last-result))))
+                                      (lambda () result ... (opts.seal the-goal (refine hole last-result))))
                                      '#,stx
                                      'the-rule-macro)]
                  [other ((fail (format "Wrong goal:\n~a" other)) hole make-subgoal)])))))])))

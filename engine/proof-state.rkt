@@ -110,7 +110,7 @@
 
 (define (unseal/hole h r)
   (match (get-proof-state h)
-    [(proof-state _ _ _ _ u _) (u r)]))
+    [(proof-state _ _ _ g u _) (u g r)]))
 
 
 (define (refine hole-stx new-stx)
