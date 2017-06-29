@@ -44,11 +44,14 @@
                      stx->string
                      equal-goal? fail-if-skip)
          (struct-out Π)
+         =>
          (struct-out ≡)
          (struct-out U)
          (struct-out Absurd)
          side-conditions
-         run-script theorem)
+         run-script
+         theorem
+         (all-from-out "../lcfish.rkt"))
 
 
 
@@ -891,6 +894,14 @@
 ;
 ;
 
+(define-syntax (=> stx)
+  (syntax-case stx ()
+    [(=> S0 T)
+     (syntax-property #`(Π S0 (λ (#,(generate-temporary #'x)) T))
+                      'original-stx stx)]
+    [(=> S0 S ... T)
+     (syntax-property #`(Π S0 (λ (#,(generate-temporary #'x)) (=> S ... T)))
+                      'original-stx stx)]))
 
 ;; Function rules
 
