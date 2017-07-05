@@ -179,15 +179,15 @@
       [(pair? alts)
        (define h (get-hole-handler hole))
        (define stream-state (rstream-snapshot))
-       (let ([res (let/ec k
-                    (local-expand-sealed
-                     ((force tac)
-                      (set-handler hole k)
-                      (use-handler h make-subgoal))))])
-         (if (exn:fail? res)
-             (begin (rstream-rewind! stream-state)
-                    ((apply try* alts) hole make-subgoal))
-             res))]
+       (define res (let/ec k
+                     (local-expand-sealed
+                      ((force tac)
+                       (set-handler hole k)
+                       (use-handler h make-subgoal)))))
+       (if (exn:fail? res)
+           (begin (rstream-rewind! stream-state)
+                  ((apply try* alts) hole make-subgoal))
+           res)]
       [else
        ((force tac) hole make-subgoal)])))
 

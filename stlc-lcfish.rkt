@@ -9,6 +9,7 @@
          (for-syntax "seal.rkt")
          (for-syntax "stx-utils.rkt"
                      racket/contract racket/match racket/promise syntax/parse racket/port syntax/srcloc)
+         (for-syntax (for-syntax syntax/parse))
          racket/stxparam
          (for-template racket/base))
 
@@ -54,7 +55,7 @@
          #'(app (lambda (x)
                   (syntax-case x (→)
                     [(→ a b)
-                     (cons a b)]
+                     (cons #'a #'b)]
                     [_ #f]))
                 (cons dom cod))]))))
 
@@ -127,14 +128,7 @@
                                 (syntax->datum t)))))
                     (format "⊢ ~a" (syntax->datum G)))])))
   
-  (define/contract (guard-goal pred tac)
-    (-> (-> ⊢? any/c) tactic/c tactic/c)
-    (lambda (hole make-hole)
-      (match (get-hole-goal hole)
-        [#f ((fail "No goal found.") hole make-hole)]
-        [g #:when (pred g)
-           (tac hole make-hole)]
-        [g ((fail (format "Wrong goal: ~a ⊢ ~a" (⊢-hyps g) (syntax->datum (⊢-goal g)))) hole make-hole)])))
+  
 
   (define/contract (int-intro i)
     (-> integer? tactic/c)
@@ -155,16 +149,18 @@
 
   (define/contract (→-intro [x 'x])
     (->* () (symbol?) tactic/c)
-    #;(rule (⊢ H (arrow-type a b))
+    #;
+    (rule (⊢ H (arrow-type a b))
           #:seal seal-stlc
           #`(lambda (#,x)
               #,(make-assumption-hole hole
-                                      make-hole
+                                      (lambda (g) (subgoal g))
                                       (datum->syntax #'here x)
                                       #'a
                                       H
                                       #'b))
           )
+    
     (lambda (hole make-hole)
       (match-define (⊢ H G) (get-hole-goal hole))
       (syntax-case G (→)
@@ -239,7 +235,7 @@
   (define-stamp stlc)
 
   (define ((emit stx) h make-subgoal)
-    (seal-stlc (refine h stx)))
+    (seal-stlc (get-hole-goal h) (refine h stx)))
   
   (define-splicing-syntax-class hyps-option
     (pattern (~seq #:hyps [(x:id t:expr) ...])
