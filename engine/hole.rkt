@@ -27,17 +27,19 @@
 
 (define-for-syntax tactic-info-hook
   (make-parameter
-   (lambda (h) #f)))
+   (lambda (loc goal) #f)))
 
 (define-syntax (hole stx)
-  (define tac (get-hole-tactic stx))
-  (define sealed-result (tac stx no-more-tactics))
-  (when (void? sealed-result)
-    (eprintf "bad!!! ~s\n" (list tac stx))
-    (error 'FAIL))
-  (define result (unseal/hole stx sealed-result))
-  ((tactic-info-hook) (refinement-loc result) (refinement-goal result))
-  (refinement-stx result))
+  (cond [(eq? (syntax-local-context) 'expression)
+         (define tac (get-hole-tactic stx))
+         (define sealed-result (tac stx no-more-tactics))
+         (when (void? sealed-result)
+           (eprintf "bad!!! ~s\n" (list tac stx))
+           (error 'FAIL))
+         (define result (unseal/hole stx sealed-result))
+         ((tactic-info-hook) (refinement-loc result) (refinement-goal result))
+         (syntax-local-introduce (refinement-stx result))]
+        [else #`(#%expression #,stx)]))
 
 
 (define-for-syntax (init-hole unseal skip-tac tactic goal loc)

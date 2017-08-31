@@ -323,6 +323,14 @@
                (delay (repeat t)))
          skip))
 
+  (define (sum3 x y z)
+    (run-script #:hyps ((x Int) (y Int) (z Int))
+                #:goal Int
+                (then-l (plus 2)
+                        ((plus 2) (assumption 0))
+                        ((assumption 1) (assumption 2)))))
+
+
   (define (length-+ str num)
     (run-script #:hyps ((str String) (num Int))
                 #:goal Int

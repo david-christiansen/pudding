@@ -7,8 +7,8 @@
 
 (struct sealed (local-expander))
 
-(define (local-expand-sealed sealed)
-  ((sealed-local-expander sealed) sealed))
+(define (local-expand-sealed unseal sealed)
+  ((sealed-local-expander sealed) unseal sealed))
 
 (define (make-stamp name)
   (define-values (type ctor pred acc mut)
@@ -21,10 +21,11 @@
   (define unseal-name (string->symbol (format "unseal-~a" name)))
   (define seal-name (string->symbol (format "seal-~a" name)))
 
-  (define (local-expander val)
-    (match-define (refinement stx goal loc) (acc val 0))
+  (define (local-expander unseal val)
+    (match-define (refinement stx goal loc) (unseal val))
     (ctor (sealed-local-expander val)
-          (refinement (local-expand stx 'expression null)
+          (refinement (let-values ([(slow fast) (syntax-local-expand-expression (syntax-local-introduce stx))])
+                        (syntax-local-introduce fast))
                       goal
                       loc)
           (acc val 1)))

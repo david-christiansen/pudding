@@ -181,6 +181,7 @@
        (define stream-state (rstream-snapshot))
        (define res (let/ec k
                      (local-expand-sealed
+                      (lambda (x) (unseal/hole hole x))
                       ((force tac)
                        (set-handler hole k)
                        (use-handler h make-subgoal)))))
