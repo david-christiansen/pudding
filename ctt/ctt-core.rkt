@@ -689,7 +689,8 @@
                  (subgoal (⊢ H (local-expand #`(≡ (U #,j) eq.left eq.right)
                                              'expression
                                              null)))
-                 (not-applicable "Universe too big for cumulativity"))]))))
+                 (not-applicable "Universe too big for cumulativity"))]
+            [_ (not-applicable)]))))
 
 (module+ test
   (define u2
@@ -1043,7 +1044,8 @@
                                         null)))
                      var))
                 #,(subgoal (⊢ H (local-expand #'(≡ eq.type eq.left eq.left) 'expression null)))
-                #,(subgoal (⊢ H (local-expand #'(≡ eq.type eq.right eq.right) 'expression null))))])))
+                #,(subgoal (⊢ H (local-expand #'(≡ eq.type eq.right eq.right) 'expression null))))]
+            [_ (not-applicable)])))
 
   (define apply-reduce
     (rule (⊢ H G)
@@ -1238,7 +1240,8 @@
           (syntax-parse G
             #:literal-sets (kernel-literals)
             [u:Uni
-             #`(#%plain-app #,listof-ctor #,(subgoal (⊢ H #'u)))])))
+             #`(#%plain-app #,listof-ctor #,(subgoal (⊢ H #'u)))]
+            [_ (not-applicable)])))
 
   (define list-equality
     (rule (⊢ H G)
@@ -1249,7 +1252,8 @@
              #:with u:Uni #'eq.type
              #:with l1:Lst #'eq.left
              #:with l2:Lst #'eq.right
-             (subgoal (local-expand #`(≡ u l1.type l2.type) 'expression null))])))
+             (subgoal (local-expand #`(≡ u l1.type l2.type) 'expression null))]
+            [_ (not-applicable)])))
 
   (define (list-intro-nil i)
     (rule (⊢ H G)
@@ -1270,14 +1274,16 @@
              #:with (quote ()) #'eq.left
              #:with (quote ()) #'eq.right
              #:with l:Lst #'eq.type
-             #`(side-conditions #,(subgoal (⊢ H (local-expand #`(≡ (U #,i) l.type l.type) 'expression null))))])))
+             #`(side-conditions #,(subgoal (⊢ H (local-expand #`(≡ (U #,i) l.type l.type) 'expression null))))]
+            [_ (not-applicable)])))
 
   (define list-intro-cons
     (rule (⊢ H G)
           #:seal seal-ctt
           (syntax-parse G
             [l:Lst
-             #'(cons #,(subgoal (⊢ H #'l.type)) #,(subgoal (⊢ H #'l)))])))
+             #'(cons #,(subgoal (⊢ H #'l.type)) #,(subgoal (⊢ H #'l)))]
+            [_ (not-applicable)])))
 
   (define list-cons-equality
     (rule (⊢ H G)
@@ -1292,7 +1298,8 @@
              #`(side-conditions
                 #,(subgoal (⊢ H (local-expand #'(≡ lst.type x y) 'expression null)))
                 #,(subgoal (⊢ H (local-expand #'(≡ lst xs ys) 'expression null)))
-                (void))])))
+                (void))]
+            [_ (not-applicable)])))
 
   (define (list-elim n)
     (rule (⊢ (and H (at-hyp n Δ (hyp xs l #f) Γ)) G)
@@ -1316,7 +1323,8 @@
                                              H)))
                            (subst1 xs (local-expand #`(cons #,y #,ys) 'expression null) G)))
                       y ys ih)))
-             #`(ind-Listof #,xs #,base #,step)]))))
+             #`(ind-Listof #,xs #,base #,step)]
+            [_ (not-applicable)]))))
 
 ;                                                              
 ;                                                              

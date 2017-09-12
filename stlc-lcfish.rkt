@@ -8,7 +8,8 @@
          "rule.rkt"
          (for-syntax "seal.rkt")
          (for-syntax "stx-utils.rkt"
-                     racket/contract racket/match racket/promise syntax/parse racket/port syntax/srcloc)
+                     racket/contract racket/match racket/promise
+                     syntax/parse racket/port syntax/srcloc)
          (for-syntax (for-syntax syntax/parse))
          racket/stxparam
          (for-template racket/base))
@@ -205,7 +206,8 @@
                                            '#,(syntax-span x)))
                    ((emit #`(contract #,(type->contract t)
                                       #,x
-                                      #,(string-append "assumption " (symbol->string (syntax-e x)) " in proof")
+                                      #,(string-append "assumption " (symbol->string (syntax-e x))
+                                                       " in proof")
                                       'neg-blame
                                       '#,x
                                       #,where))

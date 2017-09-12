@@ -150,7 +150,7 @@
 (define-for-syntax (β type)
   (match-goal*
    ((⊢ H G)
-    (with-handlers ([exn:fail?
+    (with-handlers (#;[exn:fail?
                      (lambda (e)
                        (fail "Can't use β here: ~a" (exn-message e)))])
       (syntax-parse G
@@ -255,7 +255,7 @@
                    (with-hyps ([k0 2] [n2 0])
                      (auto)
                      (β (E (=> (Nat) (Nat))))
-                     (repeat (try apply-reduce (auto/arith)))
+                     (repeat (try apply-reduce (auto/arith))) 
                      (then-l
                       (replace (E (Nat))
                                (E (ind-Nat k0 n2 (λ (k) (λ (ih) (add1 ih)))))
@@ -274,3 +274,4 @@
                              (repeat reduce-either)
                              (flip (β (E (=> (Nat) (Nat)))))
                              (repeat (try reduce-either (auto/arith)))))))))))))
+1

@@ -129,7 +129,8 @@
              #:with nat:Nat-stx #'eq.type
              #:with (#%plain-app add1 j) #'eq.left
              #:with (#%plain-app add1 k) #'eq.right
-             (subgoal (⊢ H (ex #'(≡ (Nat) j k))))])))
+             (subgoal (⊢ H (ex #'(≡ (Nat) j k))))]
+            [_ (not-applicable)])))
 
 
   (define (nat-intro-arith op args)
@@ -147,7 +148,8 @@
                     ['+ #'+]
                     ['* #'*]
                     ['- #'monus])
-                #,@subgoals)])))
+                #,@subgoals)]
+            [_ (not-applicable)])))
 
   (define nat-equal-const
     (rule (⊢ H G)
@@ -266,7 +268,8 @@
              #`(side-conditions
                 #,(subgoal (⊢ H (ex #'(≡ eq.type base eq.right))))
                 #,(subgoal (⊢ H (ex #'(≡ (Nat) n 0))))
-                (void))])))
+                (void))]
+            [_ (not-applicable)])))
 
   (define add1-equality
     (rule (⊢ H G)
@@ -278,7 +281,8 @@
              #:with n:Nat-stx #'eq.type
              #:with (#%plain-app add1 j) #'eq.left
              #:with (#%plain-app add1 k) #'eq.right
-             (subgoal (⊢ H (ex #'(≡ (Nat) j k))))])))
+             (subgoal (⊢ H (ex #'(≡ (Nat) j k))))]
+            [_ (not-applicable)])))
   
   (define (nat-elim n)
     (rule (⊢ (and H (at-hyp n Δ (hyp x nat #f) Γ)) G)
@@ -307,7 +311,8 @@
              
              #`(ind-Nat #,x
                         #,base
-                        #,step)])))
+                        #,step)]
+            [_ (not-applicable)])))
 
 
   (define (ind-Nat-equality motive)
